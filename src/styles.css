@@ -234,6 +234,47 @@ button { color: inherit; border: 0; cursor: pointer; }
   .notification-heading { align-items: flex-end; }
 }
 
+/* Login gate */
+.login-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(390px, .9fr); background: var(--forest-deep); }
+.login-art { position: relative; display: flex; flex-direction: column; justify-content: space-between; min-height: 100vh; overflow: hidden; padding: 38px clamp(32px, 6vw, 88px); background: linear-gradient(135deg, #285641 0%, #173b2e 51%, #10251d 100%); }
+.login-art:before { content: ''; position: absolute; inset: 0; opacity: .35; background: repeating-linear-gradient(116deg, transparent 0 45px, rgba(233, 255, 215, .1) 46px 48px, transparent 49px 95px); transform: rotate(7deg) scale(1.2); }
+.login-art > * { position: relative; z-index: 1; }
+.login-art > .brand-lockup { align-self: flex-start; }
+.login-art-copy { max-width: 470px; padding-bottom: 15vh; }
+.login-art-copy h1 { margin: 20px 0 19px; color: var(--cream); font-family: 'Libre Baskerville', serif; font-size: clamp(42px, 5vw, 72px); line-height: 1.04; }
+.login-art-copy h1 span { color: var(--acid); }
+.login-art-copy p { max-width: 340px; margin: 0; color: var(--muted-strong); font-size: 14px; line-height: 1.8; }
+.login-art-mark { display: flex; align-items: center; gap: 11px; color: var(--acid); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; line-height: 1.5; }
+.login-art-mark .brand-mark { width: 34px; height: 34px; }
+.login-panel { display: grid; place-items: center; min-height: 100vh; padding: 40px clamp(24px, 6vw, 90px); background: var(--forest-deep); }
+.login-panel-inner { width: min(100%, 390px); }
+.login-mobile-brand { display: none; }
+.login-heading { margin-bottom: 28px; }
+.login-icon { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 21px; color: var(--forest); background: var(--acid); border-radius: 50%; }
+.login-heading h2 { margin: 9px 0 9px; color: var(--cream); font-family: 'Libre Baskerville', serif; font-size: 29px; }
+.login-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.login-form { display: grid; gap: 15px; }
+.login-form label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; }
+.login-form input { width: 100%; min-height: 43px; padding: 12px 13px; outline: none; color: var(--cream); background: rgba(23, 50, 41, .72); border: 1px solid var(--line); border-radius: 3px; font-size: 12px; }
+.login-form input:focus { border-color: var(--acid); background: rgba(23, 50, 41, .95); }
+.login-form .full-width { margin-top: 5px; min-height: 43px; }
+.login-error { margin: -3px 0 0; color: var(--coral); font-size: 10px; }
+.login-switch { display: flex; justify-content: center; gap: 5px; margin-top: 22px; color: var(--muted); font-size: 10px; }
+.login-switch button { padding: 0; color: var(--acid); background: transparent; font-size: 10px; }
+.login-switch button:hover { text-decoration: underline; }
+.login-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 38px; padding-top: 15px; color: var(--muted); border-top: 1px solid var(--line); font-size: 9px; line-height: 1.6; }
+.login-note svg { flex: 0 0 auto; color: var(--acid); }
+
+@media (max-width: 760px) {
+  .login-shell { display: block; }
+  .login-art { min-height: 235px; padding: 23px 21px; }
+  .login-art-copy { padding-bottom: 3px; }
+  .login-art-copy h1 { margin: 13px 0 9px; font-size: 35px; }
+  .login-art-copy p { display: none; }
+  .login-art-mark { position: absolute; right: 21px; bottom: 25px; }
+  .login-panel { min-height: calc(100vh - 235px); padding: 34px 21px 45px; }
+}
+
 /* Personal schedule */
 .schedule-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 16px; margin-top: 28px; }
 .calendar-panel, .schedule-side { border: 1px solid var(--line); background: rgba(23, 50, 41, .68); }

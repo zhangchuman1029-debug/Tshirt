@@ -19,6 +19,8 @@ import {
   Heart,
   MailCheck,
   House,
+  LockKeyhole,
+  LogIn,
   MapPin,
   Menu,
   MessageCircle,
@@ -614,8 +616,68 @@ function MembersView({ members, currentUser, onInvite, onContact }) {
   )
 }
 
+function LoginGate({ onLogin, onRegister }) {
+  const [mode, setMode] = useState('login')
+  const [error, setError] = useState('')
+
+  function submit(event) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') || '').trim().toLowerCase()
+    const password = String(form.get('password') || '')
+    const name = String(form.get('name') || '').trim()
+    const inviteCode = String(form.get('inviteCode') || '').trim()
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('请输入有效的邮箱地址。')
+      return
+    }
+    if (password.length < 6) {
+      setError('密码至少需要 6 位。')
+      return
+    }
+    if (mode === 'register' && !name) {
+      setError('请先填写你的称呼。')
+      return
+    }
+    if (mode === 'register' && inviteCode.length < 6) {
+      setError('请输入有效的邀请码。')
+      return
+    }
+    setError('')
+    mode === 'login' ? onLogin({ email }) : onRegister({ email, password, name })
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-art" aria-label="A&T club 视觉">
+        <BrandLockup />
+        <div className="login-art-copy"><span className="eyebrow">PRIVATE VOLLEY COMMUNITY</span><h1>固定的人，<br /><span>热爱的球。</span></h1><p>加入 A&T club，把下一场上场时间留给真正期待的人。</p></div>
+        <div className="login-art-mark"><BrandMark /><span>ambition<br />&amp;together</span></div>
+      </section>
+      <section className="login-panel">
+        <div className="login-panel-inner">
+          <div className="login-mobile-brand"><BrandLockup compact /></div>
+          <div className="login-heading"><div className="login-icon"><LockKeyhole size={19} /></div><span className="eyebrow">{mode === 'login' ? 'WELCOME BACK' : 'INVITE ONLY · JOIN THE CLUB'}</span><h2>{mode === 'login' ? '登录社群' : '注册成为球友'}</h2><p>{mode === 'login' ? '登录后继续查看活动、消息和你的个人日程。' : '使用社群邀请码加入 A&T club。'}</p></div>
+          <form className="login-form" onSubmit={submit}>
+            {mode === 'register' && <label>你的称呼<input name="name" autoComplete="name" placeholder="例如：小满" /></label>}
+            <label>邮箱地址<input name="email" type="email" autoComplete="email" placeholder="you@example.com" /></label>
+            <label>密码<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="至少 6 位" /></label>
+            {mode === 'register' && <label>邀请码<input name="inviteCode" placeholder="例如 AT-2026-88" /></label>}
+            {error && <p className="login-error">{error}</p>}
+            <button className="primary-button full-width" type="submit">{mode === 'login' ? '登录社群' : '验证并加入'} <LogIn size={16} /></button>
+          </form>
+          <div className="login-switch">{mode === 'login' ? <><span>还没有社群账号？</span><button onClick={() => { setMode('register'); setError('') }}>使用邀请码注册</button></> : <><span>已经有账号？</span><button onClick={() => { setMode('login'); setError('') }}>返回登录</button></>}</div>
+          <div className="login-note"><ShieldCheck size={14} /><span>这是当前浏览器中的演示登录，数据只保存在本地。</span></div>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function App() {
   const [activeNav, setActiveNav] = useState('首页')
+  const [isAuthenticated, setIsAuthenticated] = useState(() => readStoredValue('isAuthenticated', false))
   const [events, setEvents] = useState(() => readStoredValue('events', initialEvents))
   const [joinedIds, setJoinedIds] = useState(() => readStoredValue('joinedIds', []))
   const [cancellationRequests, setCancellationRequests] = useState(() => readStoredValue('cancellationRequests', []))
@@ -667,6 +729,10 @@ function App() {
   }, [events])
 
   useEffect(() => {
+    window.localStorage.setItem(`${STORAGE_PREFIX}isAuthenticated`, JSON.stringify(isAuthenticated))
+  }, [isAuthenticated])
+
+  useEffect(() => {
     window.localStorage.setItem(`${STORAGE_PREFIX}joinedIds`, JSON.stringify(joinedIds))
   }, [joinedIds])
 
@@ -713,6 +779,25 @@ function App() {
   function flash(message) {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2600)
+  }
+
+  function handleLogin({ email }) {
+    const existingMember = members.find((member) => member.email === email)
+    setRegisteredMember(existingMember ? { name: existingMember.name, email } : { name: email.split('@')[0], email })
+    setIsAuthenticated(true)
+  }
+
+  function handleGateRegister({ email, name }) {
+    const existingMember = members.find((member) => member.email === email)
+    if (existingMember) {
+      setRegisteredMember({ name: existingMember.name, email })
+      setIsAuthenticated(true)
+      return
+    }
+    const newMember = { initials: name.slice(0, 1).toUpperCase(), name, role: '新成员', color: 'green', email }
+    setMembers((current) => [newMember, ...current])
+    setRegisteredMember({ name, email })
+    setIsAuthenticated(true)
   }
 
   function handleJoin(event) {
@@ -983,6 +1068,10 @@ function App() {
     setInviteCode('AT-2026-88')
     setShowSettings(false)
     flash('已恢复初始演示数据。')
+  }
+
+  if (!isAuthenticated) {
+    return <LoginGate onLogin={handleLogin} onRegister={handleGateRegister} />
   }
 
   return (
