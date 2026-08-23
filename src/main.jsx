@@ -41,6 +41,22 @@ import {
   X,
 } from 'lucide-react'
 import { sendWelcomeEmail } from './lib/emailService'
+import {
+  createInviteCodeRecord,
+  getFirebaseAuthErrorMessage,
+  getFirebaseOwnerStatus,
+  isFirebaseConfigured,
+  loginWithFirebase,
+  registerWithFirebase,
+  saveCommunityAccess,
+  saveCommunityData,
+  saveUserData,
+  subscribeToAuth,
+  subscribeToCommunityAccess,
+  subscribeToCommunity,
+  subscribeToAllUserData,
+  subscribeToUserData,
+} from './lib/firebaseClient'
 import './styles.css'
 
 const COMMUNITY_NAME = 'A&T club'
@@ -616,11 +632,78 @@ function MembersView({ members, currentUser, onInvite, onContact }) {
   )
 }
 
-function LoginGate({ onLogin, onRegister }) {
+function AdminUserDataModal({ users, events, loading, onClose }) {
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredUsers = users.filter((user) => {
+    const member = user.registeredMember || {}
+    return `${member.name || ''} ${member.email || ''}`.toLowerCase().includes(normalizedQuery)
+  })
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="modal admin-data-modal" onMouseDown={(event) => event.stopPropagation()} aria-label="成员数据">
+        <button className="modal-close" aria-label="关闭" onClick={onClose}><X size={18} /></button>
+        <div className="modal-icon"><UsersRound size={22} /></div>
+        <span className="eyebrow">ADMIN ONLY · MEMBER DATA</span>
+        <h2>成员数据</h2>
+        <p>仅展示社群运营需要的信息，不包含用户密码。</p>
+        <label className="admin-data-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名或邮箱" /></label>
+        {loading ? <div className="review-empty"><Clock3 size={16} /> 正在读取成员数据…</div> : filteredUsers.length === 0 ? <div className="review-empty"><UsersRound size={16} /> 暂无可查看的成员数据</div> : <div className="admin-data-list">
+          {filteredUsers.map((user) => {
+            const member = user.registeredMember || {}
+            const joinedEvents = (user.joinedIds || []).map((id) => events.find((event) => event.id === id)?.title || `场次 ${id}`)
+            const scheduleItems = user.scheduleItems || []
+            return <article className="admin-data-item" key={user.uid}>
+              <div className="admin-data-heading"><Avatar initials={member.name?.slice(0, 1) || '?'} color={member.color || 'green'} /><div><strong>{member.name || '未命名成员'}</strong><span>{member.email || '未填写邮箱'}</span></div></div>
+              <div className="admin-data-stats"><div><small>已报名</small><strong>{joinedEvents.length} 场</strong></div><div><small>个人日程</small><strong>{scheduleItems.length} 条</strong></div><div><small>消息状态</small><strong>{user.messageReadState?.community ? '已读' : '有未读'}</strong></div></div>
+              {member.invitedByName && <p><b>邀请管理员：</b>{member.invitedByName}</p>}
+              {joinedEvents.length > 0 && <p><b>报名场次：</b>{joinedEvents.join('、')}</p>}
+              {scheduleItems.length > 0 && <p><b>最近日程：</b>{scheduleItems.slice(0, 3).map((item) => `${item.date} ${item.title}`).join('；')}</p>}
+            </article>
+          })}
+        </div>}
+      </section>
+    </div>
+  )
+}
+
+function AdminManagementModal({ members, communityAccess, onToggleAdmin, onClose }) {
+  const adminUids = communityAccess?.adminUids || []
+  const ownerUid = communityAccess?.ownerUid
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="modal admin-management-modal" onMouseDown={(event) => event.stopPropagation()} aria-label="管理员设置">
+        <button className="modal-close" aria-label="关闭" onClick={onClose}><X size={18} /></button>
+        <div className="modal-icon yellow-icon"><ShieldCheck size={22} /></div>
+        <span className="eyebrow">OWNER ONLY · ACCESS CONTROL</span>
+        <h2>管理员设置</h2>
+        <p>只有社群所有者可以调整管理员。管理员可以发放邀请码和审核报名取消申请。</p>
+        <div className="admin-owner-note"><Crown size={15} /><span>所有者：{communityAccess?.ownerName || '当前所有者'}</span></div>
+        <div className="admin-management-list">
+          {members.filter((member) => member.uid).map((member) => {
+            const enabled = adminUids.includes(member.uid)
+            const isOwnerMember = member.uid === ownerUid
+            return <article className="admin-management-item" key={member.uid}>
+              <Avatar initials={member.initials} color={member.color} />
+              <div><strong>{member.name}</strong><span>{member.email || '未填写邮箱'}</span></div>
+              {isOwnerMember ? <span className="admin-role-badge"><Crown size={12} /> 所有者</span> : <button className={`admin-toggle ${enabled ? 'is-enabled' : ''}`} onClick={() => onToggleAdmin(member, !enabled)}>{enabled ? '取消管理员' : '设为管理员'}</button>}
+            </article>
+          })}
+        </div>
+        {members.every((member) => !member.uid) && <div className="review-empty"><UsersRound size={16} /> 成员注册后才可以设置为管理员。</div>}
+      </section>
+    </div>
+  )
+}
+
+function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') || '').trim().toLowerCase()
@@ -645,7 +728,15 @@ function LoginGate({ onLogin, onRegister }) {
       return
     }
     setError('')
-    mode === 'login' ? onLogin({ email }) : onRegister({ email, password, name })
+    setSubmitting(true)
+    try {
+      if (mode === 'login') await onLogin({ email, password })
+      else await onRegister({ email, password, name, inviteCode })
+    } catch (submitError) {
+      setError(firebaseEnabled ? getFirebaseAuthErrorMessage(submitError) : '登录失败，请稍后再试。')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -665,10 +756,11 @@ function LoginGate({ onLogin, onRegister }) {
             <label>密码<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="至少 6 位" /></label>
             {mode === 'register' && <label>邀请码<input name="inviteCode" placeholder="例如 AT-2026-88" /></label>}
             {error && <p className="login-error">{error}</p>}
-            <button className="primary-button full-width" type="submit">{mode === 'login' ? '登录社群' : '验证并加入'} <LogIn size={16} /></button>
+            <button className="primary-button full-width" type="submit" disabled={submitting}>{submitting ? '正在连接…' : mode === 'login' ? '登录社群' : '验证并加入'} <LogIn size={16} /></button>
           </form>
+          <div className="login-demo-entry"><span>只想先看看？</span><button onClick={onDemoLogin}><Sparkles size={14} /> 免登录体验</button></div>
           <div className="login-switch">{mode === 'login' ? <><span>还没有社群账号？</span><button onClick={() => { setMode('register'); setError('') }}>使用邀请码注册</button></> : <><span>已经有账号？</span><button onClick={() => { setMode('login'); setError('') }}>返回登录</button></>}</div>
-          <div className="login-note"><ShieldCheck size={14} /><span>这是当前浏览器中的演示登录，数据只保存在本地。</span></div>
+          <div className="login-note"><ShieldCheck size={14} /><span>{firebaseEnabled ? '使用 Firebase 安全登录，社群内容会在成员之间同步。' : '这是当前浏览器中的演示登录，数据只保存在本地。'}</span></div>
         </div>
       </section>
     </main>
@@ -677,7 +769,22 @@ function LoginGate({ onLogin, onRegister }) {
 
 function App() {
   const [activeNav, setActiveNav] = useState('首页')
-  const [isAuthenticated, setIsAuthenticated] = useState(() => readStoredValue('isAuthenticated', false))
+  const [isAuthenticated, setIsAuthenticated] = useState(() => isFirebaseConfigured ? false : readStoredValue('isAuthenticated', false))
+  const [authResolved, setAuthResolved] = useState(() => !isFirebaseConfigured)
+  const [firebaseUser, setFirebaseUser] = useState(null)
+  const [communityAccess, setCommunityAccess] = useState(() => readStoredValue('communityAccess', {
+    ownerUid: import.meta.env.VITE_FIREBASE_OWNER_UID || 'local-demo',
+    adminUids: ['local-demo'],
+    admins: [{ uid: 'local-demo', name: '演示管理员' }],
+  }))
+  const [isOwnerClaim, setIsOwnerClaim] = useState(() => !isFirebaseConfigured)
+  const [showAdminData, setShowAdminData] = useState(false)
+  const [showAdminManagement, setShowAdminManagement] = useState(false)
+  const [adminUsers, setAdminUsers] = useState([])
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false)
+  const [communityLoaded, setCommunityLoaded] = useState(() => !isFirebaseConfigured)
+  const [userDataLoaded, setUserDataLoaded] = useState(() => !isFirebaseConfigured)
+  const [cloudError, setCloudError] = useState('')
   const [events, setEvents] = useState(() => readStoredValue('events', initialEvents))
   const [joinedIds, setJoinedIds] = useState(() => readStoredValue('joinedIds', []))
   const [cancellationRequests, setCancellationRequests] = useState(() => readStoredValue('cancellationRequests', []))
@@ -723,6 +830,144 @@ function App() {
     return { initials: '我', name: '你的名片', role: '当前用户', color: 'green' }
   }, [members, registeredMember])
   const isCurrentUserProfile = profileMember.name === currentUser.name
+  const isOwner = !isFirebaseConfigured || isOwnerClaim
+  const isAdmin = !isFirebaseConfigured || isOwner || Boolean(firebaseUser?.uid && communityAccess?.adminUids?.includes(firebaseUser.uid))
+  const cloudReady = Boolean(firebaseUser && communityLoaded && userDataLoaded)
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return undefined
+    return subscribeToAuth(async (user) => {
+      setFirebaseUser(user)
+      setAuthResolved(true)
+      setIsAuthenticated(Boolean(user))
+      setCommunityLoaded(!user)
+      setUserDataLoaded(!user)
+      if (user) {
+        setIsOwnerClaim(await getFirebaseOwnerStatus(user))
+        setRegisteredMember({
+          name: user.displayName || user.email?.split('@')[0] || '新成员',
+          email: user.email || '',
+          uid: user.uid,
+        })
+      } else {
+        setIsOwnerClaim(false)
+        setRegisteredMember(null)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseUser) return undefined
+    return subscribeToCommunityAccess((data) => {
+      if (data) setCommunityAccess(data)
+    }, () => setCloudError('管理员权限数据暂时无法同步。'))
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!firebaseUser) return undefined
+    setCloudError('')
+    const unsubscribeCommunity = subscribeToCommunity((data) => {
+      if (data) {
+        if (Array.isArray(data.events)) setEvents(data.events)
+        if (Array.isArray(data.members)) setMembers(data.members)
+        if (Array.isArray(data.messages)) setMessages(data.messages)
+        if (data.directMessages && typeof data.directMessages === 'object') setDirectMessages(data.directMessages)
+        if (Array.isArray(data.posts)) setPosts(data.posts)
+        if (Array.isArray(data.cancellationRequests)) setCancellationRequests(data.cancellationRequests)
+        if (typeof data.inviteCode === 'string') setInviteCode(data.inviteCode)
+      }
+      setCommunityLoaded(true)
+    }, () => {
+      setCloudError('云端社群数据暂时无法同步，当前页面仍可继续使用。')
+      setCommunityLoaded(true)
+    })
+    const unsubscribeUser = subscribeToUserData(firebaseUser.uid, (data) => {
+      if (data) {
+        if (Array.isArray(data.joinedIds)) setJoinedIds(data.joinedIds)
+        if (Array.isArray(data.scheduleItems)) setScheduleItems(data.scheduleItems)
+        if (data.messageReadState && typeof data.messageReadState === 'object') setMessageReadState(data.messageReadState)
+        if (Array.isArray(data.notifications)) setNotifications(data.notifications)
+        if (data.registeredMember) setRegisteredMember(data.registeredMember)
+      }
+      setUserDataLoaded(true)
+    }, () => {
+      setCloudError('个人数据暂时无法同步，当前页面仍可继续使用。')
+      setUserDataLoaded(true)
+    })
+    return () => {
+      unsubscribeCommunity()
+      unsubscribeUser()
+    }
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!showAdminData) return undefined
+    if (!isFirebaseConfigured) {
+      setAdminUsers([{ uid: 'local-demo', registeredMember: currentUser, joinedIds, scheduleItems, messageReadState }])
+      setAdminUsersLoading(false)
+      return undefined
+    }
+    if (!firebaseUser || !isAdmin) return undefined
+    setAdminUsersLoading(true)
+    return subscribeToAllUserData((users) => {
+      setAdminUsers(users)
+      setAdminUsersLoading(false)
+    }, () => {
+      setAdminUsersLoading(false)
+      setCloudError('成员数据读取失败，请检查管理员权限和 Firestore 规则。')
+    })
+  }, [showAdminData, firebaseUser, isAdmin, currentUser, joinedIds, scheduleItems, messageReadState])
+
+  useEffect(() => {
+    if (!firebaseUser || !communityLoaded) return
+    const email = firebaseUser.email || ''
+    const name = firebaseUser.displayName || email.split('@')[0] || '新成员'
+    if (!email || members.some((member) => member.email === email)) return
+    setMembers((current) => [{
+      initials: name.slice(0, 1).toUpperCase(),
+      name,
+      role: '新成员',
+      color: 'green',
+      email,
+      uid: firebaseUser.uid,
+    }, ...current])
+  }, [firebaseUser, communityLoaded, members])
+
+  const communityCloudData = useMemo(() => ({
+    events,
+    members,
+    messages,
+    directMessages,
+    posts,
+    cancellationRequests,
+  }), [events, members, messages, directMessages, posts, cancellationRequests])
+
+  const userCloudData = useMemo(() => ({
+    joinedIds,
+    scheduleItems,
+    messageReadState,
+    notifications,
+    registeredMember,
+  }), [joinedIds, scheduleItems, messageReadState, notifications, registeredMember])
+
+  useEffect(() => {
+    if (!cloudReady) return
+    saveCommunityData(communityCloudData).catch(() => setCloudError('云端社群数据保存失败，稍后会自动重试。'))
+  }, [cloudReady, communityCloudData])
+
+  useEffect(() => {
+    if (!cloudReady || !firebaseUser) return
+    saveUserData(firebaseUser.uid, userCloudData).catch(() => setCloudError('个人数据保存失败，稍后会自动重试。'))
+  }, [cloudReady, firebaseUser, userCloudData])
+
+  useEffect(() => {
+    if (!cloudReady || !firebaseUser || !isOwner) return
+    const ownerAccess = communityAccess.ownerUid === 'local-demo'
+      ? { ...communityAccess, ownerUid: firebaseUser.uid, ownerName: currentUser.name }
+      : communityAccess
+    if (ownerAccess !== communityAccess) setCommunityAccess(ownerAccess)
+    saveCommunityAccess(ownerAccess).catch(() => setCloudError('管理员权限保存失败，请检查所有者权限。'))
+  }, [cloudReady, firebaseUser, isOwner, communityAccess, currentUser.name])
 
   useEffect(() => {
     window.localStorage.setItem(`${STORAGE_PREFIX}events`, JSON.stringify(events))
@@ -781,22 +1026,45 @@ function App() {
     window.setTimeout(() => setNotice(''), 2600)
   }
 
-  function handleLogin({ email }) {
+  async function handleLogin({ email, password }) {
+    if (isFirebaseConfigured) {
+      await loginWithFirebase(email, password)
+      return
+    }
     const existingMember = members.find((member) => member.email === email)
     setRegisteredMember(existingMember ? { name: existingMember.name, email } : { name: email.split('@')[0], email })
     setIsAuthenticated(true)
   }
 
-  function handleGateRegister({ email, name }) {
+  async function handleGateRegister({ email, password, name, inviteCode: submittedInviteCode }) {
+    if (!isFirebaseConfigured && submittedInviteCode.toUpperCase() !== inviteCode.trim().toUpperCase()) {
+      throw new Error('invalid-invite-code')
+    }
+    if (isFirebaseConfigured) {
+      const credential = await registerWithFirebase(email, password, name, submittedInviteCode)
+      const newMember = { initials: name.slice(0, 1).toUpperCase(), name, role: '新成员', color: 'green', email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName }
+      setMembers((current) => current.some((member) => member.email === email) ? current : [newMember, ...current])
+      setRegisteredMember({ name, email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName })
+      return
+    }
     const existingMember = members.find((member) => member.email === email)
     if (existingMember) {
       setRegisteredMember({ name: existingMember.name, email })
       setIsAuthenticated(true)
       return
     }
-    const newMember = { initials: name.slice(0, 1).toUpperCase(), name, role: '新成员', color: 'green', email }
+    const newMember = { initials: name.slice(0, 1).toUpperCase(), name, role: '新成员', color: 'green', email, invitedByUid: 'local-demo', invitedByName: '演示管理员' }
     setMembers((current) => [newMember, ...current])
-    setRegisteredMember({ name, email })
+    setRegisteredMember({ name, email, invitedByUid: 'local-demo', invitedByName: '演示管理员' })
+    setIsAuthenticated(true)
+  }
+
+  function handleDemoLogin() {
+    const demoMember = { initials: '测', name: '测试用户', role: '测试成员', color: 'green', email: 'demo@at-club.local' }
+    if (!members.some((member) => member.email === demoMember.email)) {
+      setMembers((current) => [demoMember, ...current])
+    }
+    setRegisteredMember({ name: demoMember.name, email: demoMember.email })
     setIsAuthenticated(true)
   }
 
@@ -954,43 +1222,56 @@ function App() {
   async function handleInviteSubmit(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const name = String(form.get('name') || '').trim()
-    const email = String(form.get('email') || '').trim().toLowerCase()
-    const password = String(form.get('password') || '')
-
-    if (inviteCode.trim().length < 6) {
-      flash('请输入有效的邀请码。')
+    const code = String(form.get('inviteCode') || '').trim().toUpperCase()
+    if (!isAdmin) {
+      flash('只有管理员可以发放邀请码。')
       return
     }
-    if (!name) {
-      flash('请先填写你的称呼。')
+    if (code.length < 6) {
+      flash('邀请码至少需要 6 位。')
       return
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      flash('请输入有效的邮箱地址。')
-      return
-    }
-    if (password.length < 6) {
-      flash('密码至少需要 6 位。')
-      return
-    }
-
-    const existingMember = members.find((member) => member.email === email)
-    if (existingMember) {
-      flash('这个邮箱已经加入社群。')
-      return
-    }
-    const newMember = { initials: name.slice(0, 1).toUpperCase(), name, role: '新成员', color: 'green', email }
-    setMembers((current) => [newMember, ...current])
-    setRegisteredMember({ name, email })
-    setShowInvite(false)
     try {
-      const result = await sendWelcomeEmail({ email, name })
-      setShowWelcomeMail(true)
-      flash(result.mode === 'live' ? '注册成功，欢迎邮件已发送。' : '注册成功，欢迎邮件已进入演示发送。')
-    } catch {
-      setShowWelcomeMail(true)
-      flash('注册成功，但欢迎邮件发送失败，请稍后重试。')
+      await createInviteCodeRecord(code, { uid: firebaseUser?.uid || 'local-demo', name: currentUser.name })
+      setInviteCode(code)
+      setShowInvite(false)
+      flash(`邀请码 ${code} 已生成，可以发给朋友。`)
+    } catch (error) {
+      flash(isFirebaseConfigured ? getFirebaseAuthErrorMessage(error) : '邀请码生成失败，请稍后重试。')
+    }
+  }
+
+  function handleOpenInvite() {
+    if (!isAdmin) {
+      flash('只有管理员可以发放邀请码。')
+      return
+    }
+    setShowInvite(true)
+  }
+
+  async function handleToggleAdmin(member, enabled) {
+    if (!isOwner || !member.uid || member.uid === communityAccess.ownerUid) {
+      flash('只有社群所有者可以调整管理员。')
+      return
+    }
+    const adminUids = enabled
+      ? [...new Set([...(communityAccess.adminUids || []), member.uid])]
+      : (communityAccess.adminUids || []).filter((uid) => uid !== member.uid)
+    const admins = enabled
+      ? [...(communityAccess.admins || []).filter((admin) => admin.uid !== member.uid), { uid: member.uid, name: member.name }]
+      : (communityAccess.admins || []).filter((admin) => admin.uid !== member.uid)
+    try {
+      if (isFirebaseConfigured) {
+        await saveCommunityAccess({ ...communityAccess, adminUids, admins })
+      }
+      setCommunityAccess((current) => ({ ...current, adminUids, admins }))
+      setMembers((current) => current.map((item) => item.uid === member.uid ? {
+        ...item,
+        role: enabled ? '管理员' : '常驻成员',
+      } : item))
+      flash(enabled ? `${member.name} 已设为管理员。` : `${member.name} 已取消管理员权限。`)
+    } catch (error) {
+      flash(getFirebaseAuthErrorMessage(error))
     }
   }
 
@@ -1070,8 +1351,20 @@ function App() {
     flash('已恢复初始演示数据。')
   }
 
+  function handleOpenAdminData() {
+    if (!isAdmin) {
+      flash('只有管理员可以查看成员数据。')
+      return
+    }
+    setShowAdminData(true)
+  }
+
+  if (isFirebaseConfigured && !authResolved) {
+    return <main className="auth-loading">正在连接登录服务…</main>
+  }
+
   if (!isAuthenticated) {
-    return <LoginGate onLogin={handleLogin} onRegister={handleGateRegister} />
+    return <LoginGate onLogin={handleLogin} onRegister={handleGateRegister} onDemoLogin={handleDemoLogin} firebaseEnabled={isFirebaseConfigured} />
   }
 
   return (
@@ -1108,6 +1401,7 @@ function App() {
       </aside>
 
       <main className="main-content">
+        {cloudError && <div className="cloud-warning" role="status">{cloudError}</div>}
         <header className="topbar">
           <div className="mobile-brand"><BrandLockup compact /></div>
           <div className="breadcrumb"><span>{COMMUNITY_NAME}</span><span>/</span><strong>{activeNav}</strong></div>
@@ -1127,7 +1421,7 @@ function App() {
               <p>固定的人，热爱的球。<br />下一场排球局已经准备好了。</p>
               <div className="hero-actions">
                 <button className="primary-button" onClick={() => document.getElementById('sessions').scrollIntoView({ behavior: 'smooth' })}>查看近期场次 <ArrowUpRight size={17} /></button>
-                <button className="quiet-button" onClick={() => setShowInvite(true)}>邀请新球友 <Plus size={16} /></button>
+                <button className="quiet-button" onClick={handleOpenInvite}>邀请新球友 <Plus size={16} /></button>
               </div>
             </div>
             <div className="hero-art" aria-label="排球场地视觉">
@@ -1167,7 +1461,7 @@ function App() {
           {activeNav === '我的场次' && <MySessionsView events={events} joinedIds={joinedIds} cancellationRequests={cancellationRequests} onExplore={() => switchNav('首页')} onRequestCancel={handleRequestCancellation} />}
           {activeNav === '个人日程' && <PersonalScheduleView events={events} joinedIds={joinedIds} scheduleItems={scheduleItems} onAdd={() => setShowScheduleComposer(true)} onToggle={toggleScheduleItem} onDelete={deleteScheduleItem} />}
           {activeNav === '消息' && <MessagesView messages={messages} directMessages={directMessages} members={members} focusMember={focusMember} messageReadState={messageReadState} onSend={handleSendMessage} onSelectMember={(member) => setFocusMember(member)} onBackToCommunity={() => setFocusMember(null)} onMarkRead={handleMarkMessageRead} />}
-          {activeNav === '成员' && <MembersView members={members} currentUser={currentUser} onInvite={() => setShowInvite(true)} onContact={handleContactMember} />}
+          {activeNav === '成员' && <MembersView members={members} currentUser={currentUser} onInvite={handleOpenInvite} onContact={handleContactMember} />}
         </div>
       </main>
 
@@ -1186,13 +1480,10 @@ function App() {
 
       {showInvite && <div className="modal-backdrop" onMouseDown={() => setShowInvite(false)}><div className="modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" aria-label="关闭" onClick={() => setShowInvite(false)}><X size={18} /></button>
-        <div className="modal-icon"><ShieldCheck size={22} /></div><span className="eyebrow">INVITE ONLY · EMAIL JOIN</span><h2>注册成为球友</h2><p>输入邀请码和邮箱，加入「{COMMUNITY_NAME}」。注册成功后，我们会把欢迎邮件发到你的邮箱。</p>
+        <div className="modal-icon"><ShieldCheck size={22} /></div><span className="eyebrow">ADMIN ONLY · INVITE CODE</span><h2>发放邀请码</h2><p>每个邀请码只能使用一次。生成后发给朋友，朋友在登录页使用它注册。</p>
         <form onSubmit={handleInviteSubmit}>
-          <label>你的称呼<input name="name" autoComplete="name" placeholder="例如：小满" /></label>
-          <label>邮箱地址<div className="input-with-icon"><AtSign size={15} /><input name="email" type="email" autoComplete="email" placeholder="you@example.com" /></div></label>
-          <label>设置密码<input name="password" type="password" autoComplete="new-password" placeholder="至少 6 位" /></label>
-          <label>邀请码<input name="inviteCode" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="例如 AT-2026-88" /></label>
-          <button className="primary-button full-width" type="submit">验证并注册 <ArrowUpRight size={16} /></button>
+          <label>指定邀请码<input name="inviteCode" defaultValue={inviteCode} placeholder="例如 AT-2026-88" /></label>
+          <button className="primary-button full-width" type="submit">生成邀请码 <ArrowUpRight size={16} /></button>
         </form>
         <div className="invite-share"><span>你的邀请码</span><strong>{inviteCode}</strong><button onClick={copyCode} aria-label="复制邀请码"><Copy size={16} /></button></div>
       </div></div>}
@@ -1226,13 +1517,16 @@ function App() {
       {showNotifications && <NotificationsModal notifications={notifications} onClose={() => setShowNotifications(false)} onSelect={handleNotificationSelect} onReadAll={() => { setNotifications((current) => current.map((notification) => ({ ...notification, read: true }))); flash('通知已全部标记为已读。') }} />}
 
       {showSettings && <div className="modal-backdrop" onMouseDown={() => setShowSettings(false)}><div className="modal settings-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="modal-close" aria-label="关闭" onClick={() => setShowSettings(false)}><X size={18} /></button><div className="modal-icon yellow-icon"><Settings2 size={22} /></div><span className="eyebrow">COMMUNITY SETTINGS</span><h2>社群设置</h2><p>管理新成员加入时使用的邀请码。所有演示数据仅存储在当前浏览器中。</p>
-        <label>邀请码<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} aria-label="邀请码" /></label>
+        <button className="modal-close" aria-label="关闭" onClick={() => setShowSettings(false)}><X size={18} /></button><div className="modal-icon yellow-icon"><Settings2 size={22} /></div><span className="eyebrow">COMMUNITY SETTINGS</span><h2>社群设置</h2><p>管理新成员加入时使用的邀请码，以及取消报名审核。</p>
+        <div className="invite-admin-summary"><span>当前邀请码</span><strong>{inviteCode}</strong><button className="quiet-button" onClick={handleOpenInvite}><Plus size={15} /> 发放新邀请码</button></div>
         <div className="cancellation-review"><div className="review-heading"><div><span className="eyebrow">CANCELLATION REVIEW</span><h3>取消报名审核</h3></div><span className="review-count">{pendingCancellationRequests().length} 待处理</span></div>
           {pendingCancellationRequests().length === 0 ? <div className="review-empty"><Check size={16} /> 暂无待处理的取消报名申请</div> : <div className="review-list">{pendingCancellationRequests().map((request) => <article className="review-item" key={request.id}><div className="review-item-copy"><strong>{request.eventTitle}</strong><span>{request.date} · {request.time}</span><small>{request.venue} · {request.requestedAt}提交</small></div><div className="review-item-actions"><button className="review-reject" onClick={() => handleCancellationReview(request, 'reject')}>驳回</button><button className="review-approve" onClick={() => handleCancellationReview(request, 'approve')}><Check size={13} /> 批准</button></div></article>)}</div>}
         </div>
-        <div className="settings-actions"><button className="quiet-button" onClick={copyCode}><Copy size={15} /> 复制邀请码</button><button className="danger-button" onClick={resetCommunityData}>恢复演示数据</button></div>
+        <div className="settings-actions"><button className="quiet-button" onClick={copyCode}><Copy size={15} /> 复制邀请码</button>{isAdmin && <button className="quiet-button" onClick={handleOpenAdminData}><UsersRound size={15} /> 查看成员数据</button>}{isOwner && <button className="quiet-button" onClick={() => setShowAdminManagement(true)}><ShieldCheck size={15} /> 设置管理员</button>}<button className="danger-button" onClick={resetCommunityData}>恢复演示数据</button></div>
       </div></div>}
+
+      {showAdminData && <AdminUserDataModal users={adminUsers} events={events} loading={adminUsersLoading} onClose={() => setShowAdminData(false)} />}
+      {showAdminManagement && <AdminManagementModal members={members} communityAccess={communityAccess} onToggleAdmin={handleToggleAdmin} onClose={() => setShowAdminManagement(false)} />}
 
       {showProfile && <div className="modal-backdrop" onMouseDown={() => setShowProfile(false)}><div className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" aria-label="关闭" onClick={() => setShowProfile(false)}><X size={18} /></button><Avatar initials={profileMember.initials} color={profileMember.color} size="large" /><span className="eyebrow">{profileMember.role === '管理员' ? 'COMMUNITY ADMIN' : 'COMMUNITY MEMBER'}</span><h2>{profileMember.name}</h2><p>{COMMUNITY_NAME} · {profileMember.role}<br />一起在深圳上场，保持联系。</p><div className="profile-details"><div><UsersRound size={16} /> {profileMember.role}</div><div><CalendarDays size={16} /> 最近活跃 · 今天</div></div>{!isCurrentUserProfile && <button className="primary-button full-width profile-message-button" onClick={startDirectMessage}><MessageCircle size={16} /> 发起私聊</button>}</div></div>}
       {notice && <div className="toast"><Check size={16} /> {notice}</div>}
