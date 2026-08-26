@@ -1303,9 +1303,28 @@ function App() {
     if (isFirebaseConfigured) {
       const credential = await registerWithFirebase(email, password, name, submittedInviteCode)
       const newMember = { initials: name.slice(0, 1).toUpperCase(), name, nickname: name, bio: '', role: ROLE_LABELS.member, roleKey: 'member', color: 'green', email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName }
-      await saveCommunityProfile(credential.user.uid, newMember)
+      const newRegisteredMember = {
+        name,
+        nickname: name,
+        bio: '',
+        email,
+        uid: credential.user.uid,
+        invitedByUid: credential.invitation.invitedByUid,
+        invitedByName: credential.invitation.invitedByName,
+      }
+      await Promise.all([
+        saveCommunityProfile(credential.user.uid, newMember),
+        saveUserData(credential.user.uid, {
+          registeredMember: newRegisteredMember,
+          joinedIds: [],
+          paymentStatuses: {},
+          scheduleItems: [],
+          messageReadState: { community: false, members: {} },
+          notifications: [],
+        }),
+      ])
       setMembers((current) => current.some((member) => member.email === email) ? current : [newMember, ...current])
-      setRegisteredMember({ name, nickname: name, bio: '', email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName })
+      setRegisteredMember(newRegisteredMember)
       return
     }
     const existingMember = members.find((member) => member.email === email)
