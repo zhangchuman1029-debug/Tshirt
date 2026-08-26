@@ -22,6 +22,7 @@ import {
   House,
   LockKeyhole,
   LogIn,
+  LogOut,
   MapPin,
   Menu,
   MessageCircle,
@@ -49,6 +50,7 @@ import {
   getFirebaseOwnerStatus,
   isFirebaseConfigured,
   loginWithFirebase,
+  logoutFromFirebase,
   registerWithFirebase,
   saveCommunityAccess,
   saveCommunityData,
@@ -835,7 +837,7 @@ function AdminManagementModal({ members, communityAccess, onToggleAdmin, onClose
   )
 }
 
-function ProfileModal({ profileMember, currentUser, onClose, onSave, onStartMessage }) {
+function ProfileModal({ profileMember, currentUser, onClose, onSave, onStartMessage, onLogout }) {
   const isSelf = profileMember.uid && currentUser.uid
     ? profileMember.uid === currentUser.uid
     : getMemberName(profileMember) === getMemberName(currentUser)
@@ -858,6 +860,7 @@ function ProfileModal({ profileMember, currentUser, onClose, onSave, onStartMess
           <label>昵称<input value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={30} autoFocus /></label>
           <label>个人简介<textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={160} rows="3" placeholder="介绍一下你自己，方便球友认识你。" /></label>
           <button className="primary-button full-width" type="submit" disabled={!nickname.trim()}>保存名片 <Check size={16} /></button>
+          <button className="quiet-button full-width logout-button" type="button" onClick={onLogout}><LogOut size={16} /> 退出登录</button>
         </form> : <>
           <h2>{getMemberName(profileMember)}</h2>
           <p>{profileMember.bio || '还没有填写个人简介。'}</p>
@@ -1346,6 +1349,26 @@ function App() {
     }
     setRegisteredMember({ name: demoMember.name, nickname: demoMember.name, bio: demoMember.bio, email: demoMember.email })
     setIsAuthenticated(true)
+  }
+
+  async function handleLogout() {
+    try {
+      if (isFirebaseConfigured) await logoutFromFirebase()
+      setIsAuthenticated(false)
+      setFirebaseUser(null)
+      setRegisteredMember(null)
+      setJoinedIds([])
+      setPaymentStatuses({})
+      setScheduleItems([])
+      setPaymentOrder(null)
+      setPendingJoinEvent(null)
+      setSelectedEvent(null)
+      setShowProfile(false)
+      setShowMobileNav(false)
+      setActiveNav('首页')
+    } catch (error) {
+      flash(error.message || '退出登录失败，请稍后重试。')
+    }
   }
 
   function requestJoin(event) {
@@ -1928,7 +1951,7 @@ function App() {
       {showAdminData && <AdminUserDataModal users={adminUsers} events={events} communityAccess={communityAccess} loading={adminUsersLoading} onClose={() => setShowAdminData(false)} />}
       {showAdminManagement && <AdminManagementModal members={members} communityAccess={communityAccess} onToggleAdmin={handleToggleAdmin} onClose={() => setShowAdminManagement(false)} />}
 
-      {showProfile && <ProfileModal profileMember={profileMember} currentUser={currentUser} onClose={() => setShowProfile(false)} onSave={handleSaveProfile} onStartMessage={startDirectMessage} />}
+      {showProfile && <ProfileModal profileMember={profileMember} currentUser={currentUser} onClose={() => setShowProfile(false)} onSave={handleSaveProfile} onStartMessage={startDirectMessage} onLogout={handleLogout} />}
       {notice && <div className="toast"><Check size={16} /> {notice}</div>}
     </div>
   )
