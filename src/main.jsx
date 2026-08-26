@@ -76,6 +76,7 @@ const ROLE_FILTERS = [
   { key: 'administrator', label: 'Administrator' },
   { key: 'member', label: 'Member' },
 ]
+const INVITE_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const EVENT_PUBLISHER_LABELS = { administrator: '管理员发布', member: '成员发布' }
 
 function getRoleKey(member, communityAccess) {
@@ -238,6 +239,15 @@ function readStoredValue(key, fallback) {
   } catch {
     return fallback
   }
+}
+
+function generateInviteCode() {
+  const values = new Uint32Array(8)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(values)
+    return Array.from(values, (value) => INVITE_CODE_ALPHABET[value % INVITE_CODE_ALPHABET.length]).join('')
+  }
+  return Array.from({ length: 8 }, () => INVITE_CODE_ALPHABET[Math.floor(Math.random() * INVITE_CODE_ALPHABET.length)]).join('')
 }
 
 function Avatar({ initials, color = 'orange', size = 'regular' }) {
@@ -897,8 +907,8 @@ function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
       setError('请先填写你的称呼。')
       return
     }
-    if (mode === 'register' && inviteCode.length < 6) {
-      setError('请输入有效的邀请码。')
+    if (mode === 'register' && !/^[A-Z]{8}$/.test(inviteCode.toUpperCase())) {
+      setError('请输入 8 位字母邀请码。')
       return
     }
     setError('')
@@ -928,7 +938,7 @@ function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
             {mode === 'register' && <label>你的称呼<input name="name" autoComplete="name" placeholder="例如：小满" /></label>}
             <label>邮箱地址<input name="email" type="email" autoComplete="email" placeholder="you@example.com" /></label>
             <label>密码<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="至少 6 位" /></label>
-            {mode === 'register' && <label>邀请码<input name="inviteCode" placeholder="例如 AT-2026-88" /></label>}
+            {mode === 'register' && <label>邀请码<input name="inviteCode" placeholder="例如 VOLLEYAB" /></label>}
             {error && <p className="login-error">{error}</p>}
             <button className="primary-button full-width" type="submit" disabled={submitting}>{submitting ? '正在连接…' : mode === 'login' ? '登录社群' : '验证并加入'} <LogIn size={16} /></button>
           </form>
@@ -982,7 +992,7 @@ function App() {
   const [profileMember, setProfileMember] = useState(initialMembers[0])
   const [focusMember, setFocusMember] = useState(null)
   const [notice, setNotice] = useState('')
-  const [inviteCode, setInviteCode] = useState(() => readStoredValue('inviteCode', 'AT-2026-88'))
+  const [inviteCode, setInviteCode] = useState(() => readStoredValue('inviteCode', generateInviteCode()))
   const [members, setMembers] = useState(() => readStoredValue('members', initialMembers))
   const [registeredMember, setRegisteredMember] = useState(() => readStoredValue('registeredMember', null))
   const [messages, setMessages] = useState(() => readStoredValue('messages', starterMessages))
@@ -1639,24 +1649,34 @@ function App() {
 
   async function handleInviteSubmit(event) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const code = String(form.get('inviteCode') || '').trim().toUpperCase()
+    const code = inviteCode.trim().toUpperCase()
     if (!isAdmin) {
       flash('只有管理员可以发放邀请码。')
       return
     }
-    if (code.length < 6) {
-      flash('邀请码至少需要 6 位。')
+    if (!/^[A-Z]{8}$/.test(code)) {
+      flash('邀请码必须是 8 位字母。')
       return
     }
-    try {
-      await createInviteCodeRecord(code, { uid: firebaseUser?.uid || 'local-demo', name: currentUser.name })
-      setInviteCode(code)
-      setShowInvite(false)
-      flash(`邀请码 ${code} 已生成，可以发给朋友。`)
-    } catch (error) {
-      flash(isFirebaseConfigured ? getFirebaseAuthErrorMessage(error) : '邀请码生成失败，请稍后重试。')
+    let nextCode = code
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await createInviteCodeRecord(nextCode, { uid: firebaseUser?.uid || 'local-demo', name: currentUser.name })
+        setInviteCode(nextCode)
+        setShowInvite(false)
+        flash(`邀请码 ${nextCode} 已生成，可以发给朋友。`)
+        return
+      } catch (error) {
+        if (isFirebaseConfigured && error?.message === 'invite-code-exists') {
+          nextCode = generateInviteCode()
+          setInviteCode(nextCode)
+          continue
+        }
+        flash(isFirebaseConfigured ? getFirebaseAuthErrorMessage(error) : '邀请码生成失败，请稍后重试。')
+        return
+      }
     }
+    flash('邀请码生成失败，请重试。')
   }
 
   function handleOpenInvite() {
@@ -1664,6 +1684,7 @@ function App() {
       flash('只有管理员可以发放邀请码。')
       return
     }
+    setInviteCode(generateInviteCode())
     setShowInvite(true)
   }
 
@@ -1766,7 +1787,7 @@ function App() {
     setPosts(starterPosts)
     setNotifications(initialNotifications)
     setRegisteredMember(null)
-    setInviteCode('AT-2026-88')
+    setInviteCode(generateInviteCode())
     setShowSettings(false)
     flash('已恢复初始演示数据。')
   }
@@ -1903,7 +1924,7 @@ function App() {
         <button className="modal-close" aria-label="关闭" onClick={() => setShowInvite(false)}><X size={18} /></button>
         <div className="modal-icon"><ShieldCheck size={22} /></div><span className="eyebrow">ADMIN ONLY · INVITE CODE</span><h2>发放邀请码</h2><p>每个邀请码只能使用一次。生成后发给朋友，朋友在登录页使用它注册。</p>
         <form onSubmit={handleInviteSubmit}>
-          <label>指定邀请码<input name="inviteCode" defaultValue={inviteCode} placeholder="例如 AT-2026-88" /></label>
+          <label>本次邀请码<input name="inviteCode" value={inviteCode} readOnly /></label>
           <button className="primary-button full-width" type="submit">生成邀请码 <ArrowUpRight size={16} /></button>
         </form>
         <div className="invite-share"><span>你的邀请码</span><strong>{inviteCode}</strong><button onClick={copyCode} aria-label="复制邀请码"><Copy size={16} /></button></div>
