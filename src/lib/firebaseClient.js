@@ -8,7 +8,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
-import { collection, doc, getFirestore, onSnapshot, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getFirestore, onSnapshot, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore'
 
 const COMMUNITY_ID = 'at-club'
 
@@ -39,7 +39,16 @@ export function subscribeToAuth(callback) {
 
 export async function loginWithFirebase(email, password) {
   if (!auth) throw new Error('firebase-not-configured')
-  return signInWithEmailAndPassword(auth, email, password)
+  const credential = await signInWithEmailAndPassword(auth, email, password)
+  const [profileSnapshot, userSnapshot] = await Promise.all([
+    getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', credential.user.uid)),
+    getDoc(doc(db, 'communities', COMMUNITY_ID, 'users', credential.user.uid)),
+  ])
+  if (!profileSnapshot.exists() && !userSnapshot.exists()) {
+    await signOut(auth)
+    throw new Error('auth/member-not-registered')
+  }
+  return credential
 }
 
 export async function updateFirebaseProfile(user, name) {
@@ -193,6 +202,7 @@ export function getFirebaseAuthErrorMessage(error) {
     'auth/user-not-found': '没有找到这个邮箱对应的账号。',
     'auth/too-many-requests': '尝试次数过多，请稍后再试。',
     'auth/network-request-failed': '网络连接失败，请检查网络后再试。',
+    'auth/member-not-registered': '该账号尚未通过社群邀请码注册，请先注册后再登录。',
     'firebase-not-configured': 'Firebase 尚未配置，请先填写 .env.local。',
     'invalid-invite-code': '邀请码不正确，请向管理员确认后再试。',
     'invite-code-exists': '这个邀请码已经存在，请换一个新的。',
