@@ -11,6 +11,7 @@ VITE_FIREBASE_PROJECT_ID=你的 projectId
 VITE_FIREBASE_STORAGE_BUCKET=你的 storageBucket
 VITE_FIREBASE_MESSAGING_SENDER_ID=你的 messagingSenderId
 VITE_FIREBASE_APP_ID=你的 appId
+VITE_FIREBASE_OWNER_UID=你的 Firebase 用户 UID
 ```
 
 `.env.local` 不要提交到 GitHub。仓库里的 `.env.example` 只是一份字段模板。

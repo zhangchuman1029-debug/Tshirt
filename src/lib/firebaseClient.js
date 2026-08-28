@@ -49,11 +49,16 @@ export async function loginWithFirebase(email, password) {
 
 export async function isRegisteredMember(user) {
   if (!user || !db) return false
-  const [profileSnapshot, token] = await Promise.all([
+  const [profileSnapshot, accessSnapshot, token] = await Promise.all([
     getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
+    getDoc(doc(db, 'communityAccess', COMMUNITY_ID)),
     user.getIdTokenResult(),
   ])
-  return profileSnapshot.exists() || token.claims.owner === true
+  const configuredOwnerUid = import.meta.env.VITE_FIREBASE_OWNER_UID || ''
+  const isOwner = token.claims.owner === true
+    || user.uid === configuredOwnerUid
+    || accessSnapshot.data()?.ownerUid === user.uid
+  return profileSnapshot.exists() || isOwner
 }
 
 export async function updateFirebaseProfile(user, name) {
@@ -77,7 +82,11 @@ export async function registerWithFirebase(email, password, name, inviteCode) {
 export async function getFirebaseOwnerStatus(user) {
   if (!user) return false
   const token = await user.getIdTokenResult()
-  return token.claims.owner === true
+  if (token.claims.owner === true) return true
+  if (user.uid === (import.meta.env.VITE_FIREBASE_OWNER_UID || '')) return true
+  if (!db) return false
+  const accessSnapshot = await getDoc(doc(db, 'communityAccess', COMMUNITY_ID))
+  return accessSnapshot.data()?.ownerUid === user.uid
 }
 
 export async function redeemInviteCode(code, user, member) {
