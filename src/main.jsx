@@ -1063,7 +1063,7 @@ function App() {
           uid: user.uid,
         })
       } catch {
-        setCloudError('登录状态验证失败，请稍后重试。')
+        setCloudError('登录状态验证失败，请检查 Owner UID、Firebase Claim 和 Firestore 规则。')
         await logoutFromFirebase()
       }
     })

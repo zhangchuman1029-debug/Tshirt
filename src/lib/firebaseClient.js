@@ -49,16 +49,15 @@ export async function loginWithFirebase(email, password) {
 
 export async function isRegisteredMember(user) {
   if (!user || !db) return false
-  const [profileSnapshot, accessSnapshot, token] = await Promise.all([
+  const configuredOwnerUid = (import.meta.env.VITE_FIREBASE_OWNER_UID || '').trim()
+  const token = await user.getIdTokenResult(true)
+  if (token.claims.owner === true || user.uid === configuredOwnerUid) return true
+
+  const [profileSnapshot, accessSnapshot] = await Promise.all([
     getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
     getDoc(doc(db, 'communityAccess', COMMUNITY_ID)),
-    user.getIdTokenResult(true),
   ])
-  const configuredOwnerUid = import.meta.env.VITE_FIREBASE_OWNER_UID || ''
-  const isOwner = token.claims.owner === true
-    || user.uid === configuredOwnerUid
-    || accessSnapshot.data()?.ownerUid === user.uid
-  return profileSnapshot.exists() || isOwner
+  return profileSnapshot.exists() || accessSnapshot.data()?.ownerUid === user.uid
 }
 
 export async function updateFirebaseProfile(user, name) {
@@ -83,7 +82,7 @@ export async function getFirebaseOwnerStatus(user) {
   if (!user) return false
   const token = await user.getIdTokenResult(true)
   if (token.claims.owner === true) return true
-  if (user.uid === (import.meta.env.VITE_FIREBASE_OWNER_UID || '')) return true
+  if (user.uid === (import.meta.env.VITE_FIREBASE_OWNER_UID || '').trim()) return true
   if (!db) return false
   const accessSnapshot = await getDoc(doc(db, 'communityAccess', COMMUNITY_ID))
   return accessSnapshot.data()?.ownerUid === user.uid
@@ -217,6 +216,7 @@ export function getFirebaseAuthErrorMessage(error) {
     'auth/too-many-requests': '尝试次数过多，请稍后再试。',
     'auth/network-request-failed': '网络连接失败，请检查网络后再试。',
     'auth/member-not-registered': '该账号尚未通过社群邀请码注册，请先注册后再登录。',
+    'permission-denied': 'Firebase 权限不足，请发布最新 firestore.rules。',
     'firebase-not-configured': 'Firebase 尚未配置，请先填写 .env.local。',
     'invalid-invite-code': '邀请码不正确，请向管理员确认后再试。',
     'invite-code-exists': '这个邀请码已经存在，请换一个新的。',
