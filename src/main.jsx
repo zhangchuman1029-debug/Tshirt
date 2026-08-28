@@ -17,6 +17,8 @@ import {
   Copy,
   Crown,
   Ellipsis,
+  Eye,
+  EyeOff,
   Heart,
   MailCheck,
   House,
@@ -887,6 +889,7 @@ function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function submit(event) {
     event.preventDefault()
@@ -938,7 +941,7 @@ function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
           <form className="login-form" onSubmit={submit}>
             {mode === 'register' && <label>你的称呼<input name="name" autoComplete="name" placeholder="例如：小满" /></label>}
             <label>邮箱地址<input name="email" type="email" autoComplete="email" placeholder="you@example.com" /></label>
-            <label>密码<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="至少 6 位" /></label>
+            <label>密码<div className="password-input-wrap"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="至少 6 位" /><button type="button" className="password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
             {mode === 'register' && <label>邀请码<input name="inviteCode" placeholder="例如 VOLLEYAB" /></label>}
             {error && <p className="login-error">{error}</p>}
             <button className="primary-button full-width" type="submit" disabled={submitting}>{submitting ? '正在连接…' : mode === 'login' ? '登录社群' : '验证并加入'} <LogIn size={16} /></button>

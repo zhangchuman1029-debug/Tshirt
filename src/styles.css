@@ -340,6 +340,10 @@ button { color: inherit; border: 0; cursor: pointer; }
 .login-form label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; }
 .login-form input { width: 100%; min-height: 43px; padding: 12px 13px; outline: none; color: var(--cream); background: rgba(23, 50, 41, .72); border: 1px solid var(--line); border-radius: 3px; font-size: 12px; }
 .login-form input:focus { border-color: var(--acid); background: rgba(23, 50, 41, .95); }
+.password-input-wrap { position: relative; }
+.password-input-wrap input { padding-right: 46px; }
+.password-toggle { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; width: 32px; height: 32px; transform: translateY(-50%); color: var(--muted); background: transparent; border-radius: 3px; }
+.password-toggle:hover, .password-toggle:focus-visible { color: var(--acid); background: rgba(216, 243, 109, .08); outline: none; }
 .login-form .full-width { margin-top: 5px; min-height: 43px; }
 .login-error { margin: -3px 0 0; color: var(--coral); font-size: 10px; }
 .login-demo-entry { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 18px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; }
