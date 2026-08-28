@@ -52,7 +52,7 @@ export async function isRegisteredMember(user) {
   const [profileSnapshot, accessSnapshot, token] = await Promise.all([
     getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
     getDoc(doc(db, 'communityAccess', COMMUNITY_ID)),
-    user.getIdTokenResult(),
+    user.getIdTokenResult(true),
   ])
   const configuredOwnerUid = import.meta.env.VITE_FIREBASE_OWNER_UID || ''
   const isOwner = token.claims.owner === true
@@ -81,7 +81,7 @@ export async function registerWithFirebase(email, password, name, inviteCode) {
 
 export async function getFirebaseOwnerStatus(user) {
   if (!user) return false
-  const token = await user.getIdTokenResult()
+  const token = await user.getIdTokenResult(true)
   if (token.claims.owner === true) return true
   if (user.uid === (import.meta.env.VITE_FIREBASE_OWNER_UID || '')) return true
   if (!db) return false
