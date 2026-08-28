@@ -50,8 +50,15 @@ export async function loginWithFirebase(email, password) {
 export async function isRegisteredMember(user) {
   if (!user || !db) return false
   const configuredOwnerUid = (import.meta.env.VITE_FIREBASE_OWNER_UID || '').trim()
+  const configuredOwnerEmail = (import.meta.env.VITE_FIREBASE_OWNER_EMAIL || '').trim().toLowerCase()
   const token = await user.getIdTokenResult(true)
-  if (token.claims.owner === true || user.uid === configuredOwnerUid) return true
+  const claimRole = String(token.claims.role || '').toLowerCase()
+  if (
+    token.claims.owner === true
+    || claimRole === 'owner'
+    || user.uid === configuredOwnerUid
+    || user.email?.trim().toLowerCase() === configuredOwnerEmail
+  ) return true
 
   const [profileSnapshot, accessSnapshot] = await Promise.all([
     getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
@@ -81,8 +88,9 @@ export async function registerWithFirebase(email, password, name, inviteCode) {
 export async function getFirebaseOwnerStatus(user) {
   if (!user) return false
   const token = await user.getIdTokenResult(true)
-  if (token.claims.owner === true) return true
+  if (token.claims.owner === true || String(token.claims.role || '').toLowerCase() === 'owner') return true
   if (user.uid === (import.meta.env.VITE_FIREBASE_OWNER_UID || '').trim()) return true
+  if (user.email?.trim().toLowerCase() === (import.meta.env.VITE_FIREBASE_OWNER_EMAIL || '').trim().toLowerCase()) return true
   if (!db) return false
   const accessSnapshot = await getDoc(doc(db, 'communityAccess', COMMUNITY_ID))
   return accessSnapshot.data()?.ownerUid === user.uid
