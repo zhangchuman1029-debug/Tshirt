@@ -48,6 +48,7 @@ import {
   createInviteCodeRecord,
   getFirebaseAuthErrorMessage,
   getFirebaseOwnerStatus,
+  isRegisteredMember,
   isFirebaseConfigured,
   loginWithFirebase,
   logoutFromFirebase,
@@ -917,7 +918,7 @@ function LoginGate({ onLogin, onRegister, onDemoLogin, firebaseEnabled }) {
       if (mode === 'login') await onLogin({ email, password })
       else await onRegister({ email, password, name, inviteCode })
     } catch (submitError) {
-      setError(firebaseEnabled ? getFirebaseAuthErrorMessage(submitError) : '登录失败，请稍后再试。')
+      setError(getFirebaseAuthErrorMessage(submitError))
     } finally {
       setSubmitting(false)
     }
@@ -1002,6 +1003,7 @@ function App() {
   const [openComments, setOpenComments] = useState(null)
   const [showMobileNav, setShowMobileNav] = useState(false)
   const communityProfilesRef = useRef([])
+  const registrationInProgressRef = useRef(false)
 
   const joinedCount = joinedIds.length
   const spotsLeft = useMemo(() => events.reduce((sum, event) => sum + event.spots, 0), [events])
@@ -1032,12 +1034,26 @@ function App() {
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined
     return subscribeToAuth(async (user) => {
-      setFirebaseUser(user)
       setAuthResolved(true)
-      setIsAuthenticated(Boolean(user))
-      setCommunityLoaded(!user)
-      setUserDataLoaded(!user)
-      if (user) {
+      if (!user) {
+        setFirebaseUser(null)
+        setIsOwnerClaim(false)
+        setRegisteredMember(null)
+        setIsAuthenticated(false)
+        setCommunityLoaded(true)
+        setUserDataLoaded(true)
+        return
+      }
+      if (registrationInProgressRef.current) return
+      try {
+        if (!(await isRegisteredMember(user))) {
+          await logoutFromFirebase()
+          return
+        }
+        setFirebaseUser(user)
+        setIsAuthenticated(true)
+        setCommunityLoaded(false)
+        setUserDataLoaded(false)
         setIsOwnerClaim(await getFirebaseOwnerStatus(user))
         setRegisteredMember({
           name: user.displayName || user.email?.split('@')[0] || '新成员',
@@ -1046,9 +1062,9 @@ function App() {
           email: user.email || '',
           uid: user.uid,
         })
-      } else {
-        setIsOwnerClaim(false)
-        setRegisteredMember(null)
+      } catch {
+        setCloudError('登录状态验证失败，请稍后重试。')
+        await logoutFromFirebase()
       }
     })
   }, [])
@@ -1305,6 +1321,7 @@ function App() {
       return
     }
     const existingMember = members.find((member) => member.email === email)
+    if (!existingMember) throw new Error('auth/member-not-registered')
     setRegisteredMember(existingMember ? { ...existingMember, email } : { name: email.split('@')[0], nickname: email.split('@')[0], bio: '', email })
     setIsAuthenticated(true)
   }
@@ -1314,30 +1331,40 @@ function App() {
       throw new Error('invalid-invite-code')
     }
     if (isFirebaseConfigured) {
-      const credential = await registerWithFirebase(email, password, name, submittedInviteCode)
-      const newMember = { initials: name.slice(0, 1).toUpperCase(), name, nickname: name, bio: '', role: ROLE_LABELS.member, roleKey: 'member', color: 'green', email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName }
-      const newRegisteredMember = {
-        name,
-        nickname: name,
-        bio: '',
-        email,
-        uid: credential.user.uid,
-        invitedByUid: credential.invitation.invitedByUid,
-        invitedByName: credential.invitation.invitedByName,
+      registrationInProgressRef.current = true
+      try {
+        const credential = await registerWithFirebase(email, password, name, submittedInviteCode)
+        const newMember = { initials: name.slice(0, 1).toUpperCase(), name, nickname: name, bio: '', role: ROLE_LABELS.member, roleKey: 'member', color: 'green', email, uid: credential.user.uid, invitedByUid: credential.invitation.invitedByUid, invitedByName: credential.invitation.invitedByName }
+        const newRegisteredMember = {
+          name,
+          nickname: name,
+          bio: '',
+          email,
+          uid: credential.user.uid,
+          invitedByUid: credential.invitation.invitedByUid,
+          invitedByName: credential.invitation.invitedByName,
+        }
+        await Promise.all([
+          saveCommunityProfile(credential.user.uid, newMember),
+          saveUserData(credential.user.uid, {
+            registeredMember: newRegisteredMember,
+            joinedIds: [],
+            paymentStatuses: {},
+            scheduleItems: [],
+            messageReadState: { community: false, members: {} },
+            notifications: [],
+          }),
+        ])
+        setFirebaseUser(credential.user)
+        setIsAuthenticated(true)
+        setCommunityLoaded(false)
+        setUserDataLoaded(false)
+        setIsOwnerClaim(await getFirebaseOwnerStatus(credential.user))
+        setMembers((current) => current.some((member) => member.email === email) ? current : [newMember, ...current])
+        setRegisteredMember(newRegisteredMember)
+      } finally {
+        registrationInProgressRef.current = false
       }
-      await Promise.all([
-        saveCommunityProfile(credential.user.uid, newMember),
-        saveUserData(credential.user.uid, {
-          registeredMember: newRegisteredMember,
-          joinedIds: [],
-          paymentStatuses: {},
-          scheduleItems: [],
-          messageReadState: { community: false, members: {} },
-          notifications: [],
-        }),
-      ])
-      setMembers((current) => current.some((member) => member.email === email) ? current : [newMember, ...current])
-      setRegisteredMember(newRegisteredMember)
       return
     }
     const existingMember = members.find((member) => member.email === email)

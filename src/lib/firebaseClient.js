@@ -40,15 +40,20 @@ export function subscribeToAuth(callback) {
 export async function loginWithFirebase(email, password) {
   if (!auth) throw new Error('firebase-not-configured')
   const credential = await signInWithEmailAndPassword(auth, email, password)
-  const [profileSnapshot, userSnapshot] = await Promise.all([
-    getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', credential.user.uid)),
-    getDoc(doc(db, 'communities', COMMUNITY_ID, 'users', credential.user.uid)),
-  ])
-  if (!profileSnapshot.exists() && !userSnapshot.exists()) {
+  if (!(await isRegisteredMember(credential.user))) {
     await signOut(auth)
     throw new Error('auth/member-not-registered')
   }
   return credential
+}
+
+export async function isRegisteredMember(user) {
+  if (!user || !db) return false
+  const [profileSnapshot, token] = await Promise.all([
+    getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
+    user.getIdTokenResult(),
+  ])
+  return profileSnapshot.exists() || token.claims.owner === true
 }
 
 export async function updateFirebaseProfile(user, name) {
