@@ -29,15 +29,16 @@ Firebase Console → Firestore Database → Create database。创建完成后，
 
 当前版本同步：
 
-- 社群公共数据：活动、成员、全员消息、私聊、动态、取消报名审核
+- 社群公共数据：活动、成员
+- 社群互动子集合：全员消息、私聊、动态、取消报名审核
 - 当前用户数据：已报名场次、个人日程、消息已读状态、通知
 - 公共个人名片：昵称、个人简介和头像展示信息；成员只能修改自己的名片
 
 ## 4. 设置所有者与管理员
 
-管理员不是由前端成员资料里的“管理员”文字决定，而是由 `communityAccess/at-club` 和 Firebase Custom Claim 共同保护。
+Owner UID/邮箱用于识别并允许 Owner 登录；真正的 Firestore 管理权限仍由 `communityAccess/at-club` 或 Firebase Custom Claim 保护。
 
-第一次部署时，只给你的 Firebase 用户设置 `owner: true`：
+第一次部署时，建议给你的 Firebase 用户设置 `owner: true`。Owner UID/邮箱可以避免 Owner 被误判为未注册，但不能替代 Firestore 管理权限：
 
 ```js
 await getAuth().setCustomUserClaims('你的 Firebase 用户 UID', {

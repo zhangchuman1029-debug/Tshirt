@@ -48,23 +48,34 @@ import { sendWelcomeEmail } from './lib/emailService'
 import { createAlipayPayment, getAlipayPaymentStatus, isAlipayEnabled } from './lib/alipayClient'
 import {
   createInviteCodeRecord,
+  createCancellationRequest,
+  createCommunityMessage,
+  createCommunityPost,
+  createDirectMessage,
   getFirebaseAuthErrorMessage,
   getFirebaseOwnerStatus,
   isRegisteredMember,
   isFirebaseConfigured,
+  joinCommunityEvent,
   loginWithFirebase,
   logoutFromFirebase,
   registerWithFirebase,
+  reviewCancellationRequest,
   saveCommunityAccess,
   saveCommunityData,
   saveCommunityProfile,
   saveUserData,
   subscribeToAuth,
   subscribeToCommunityAccess,
+  subscribeToCommunityCancellationRequests,
+  subscribeToCommunityDirectMessages,
+  subscribeToCommunityMessages,
+  subscribeToCommunityPosts,
   subscribeToCommunity,
   subscribeToCommunityProfiles,
   subscribeToAllUserData,
   subscribeToUserData,
+  updateCommunityPost,
   updateFirebaseProfile,
 } from './lib/firebaseClient'
 import './styles.css'
@@ -961,7 +972,7 @@ function App() {
   const [authResolved, setAuthResolved] = useState(() => !isFirebaseConfigured)
   const [firebaseUser, setFirebaseUser] = useState(null)
   const [communityAccess, setCommunityAccess] = useState(() => readStoredValue('communityAccess', {
-    ownerUid: import.meta.env.VITE_FIREBASE_OWNER_UID || 'local-demo',
+    ownerUid: isFirebaseConfigured ? '' : 'local-demo',
     adminUids: ['local-demo'],
     admins: [{ uid: 'local-demo', name: '演示管理员' }],
   }))
@@ -1118,6 +1129,40 @@ function App() {
   }, [firebaseUser])
 
   useEffect(() => {
+    if (!firebaseUser) return undefined
+    const onError = () => setCloudError('社群互动数据暂时无法同步，当前页面仍可继续使用。')
+    const unsubscribeMessages = subscribeToCommunityMessages((items) => {
+      setMessages((current) => [...current.filter((item) => typeof item.id === 'number'), ...items])
+    }, onError)
+    const unsubscribeDirectMessages = subscribeToCommunityDirectMessages(firebaseUser.uid, (items) => {
+      const nextMessages = {}
+      items.forEach((item) => {
+        const peerName = item.senderUid === firebaseUser.uid
+          ? item.recipientName
+          : item.author
+        if (!peerName) return
+        nextMessages[peerName] = [...(nextMessages[peerName] || []), item]
+      })
+      setDirectMessages((current) => ({
+        ...Object.fromEntries(Object.entries(current).filter(([, messagesForPeer]) => messagesForPeer.some((item) => typeof item.id === 'number'))),
+        ...nextMessages,
+      }))
+    }, onError)
+    const unsubscribePosts = subscribeToCommunityPosts((items) => {
+      setPosts((current) => [...current.filter((item) => typeof item.id === 'number'), ...items])
+    }, onError)
+    const unsubscribeCancellations = subscribeToCommunityCancellationRequests(firebaseUser.uid, isAdmin, (items) => {
+      setCancellationRequests(items)
+    }, onError)
+    return () => {
+      unsubscribeMessages()
+      unsubscribeDirectMessages()
+      unsubscribePosts()
+      unsubscribeCancellations()
+    }
+  }, [firebaseUser, isAdmin])
+
+  useEffect(() => {
     if (!isAlipayEnabled || !firebaseUser) return undefined
     const outTradeNo = new URLSearchParams(window.location.search).get('out_trade_no')
     if (!outTradeNo) return undefined
@@ -1223,11 +1268,7 @@ function App() {
   const communityCloudData = useMemo(() => ({
     events,
     ...(isAdmin ? { members } : {}),
-    messages,
-    directMessages,
-    posts,
-    cancellationRequests,
-  }), [events, isAdmin, members, messages, directMessages, posts, cancellationRequests])
+  }), [events, isAdmin, members])
 
   const userCloudData = useMemo(() => ({
     joinedIds,
@@ -1250,7 +1291,7 @@ function App() {
 
   useEffect(() => {
     if (!cloudReady || !firebaseUser || !isOwner) return
-    const ownerAccess = communityAccess.ownerUid === 'local-demo'
+    const ownerAccess = !communityAccess.ownerUid || communityAccess.ownerUid === 'local-demo'
       ? { ...communityAccess, ownerUid: firebaseUser.uid, ownerName: currentUser.name }
       : communityAccess
     if (ownerAccess !== communityAccess) setCommunityAccess(ownerAccess)
@@ -1347,17 +1388,6 @@ function App() {
           invitedByUid: credential.invitation.invitedByUid,
           invitedByName: credential.invitation.invitedByName,
         }
-        await Promise.all([
-          saveCommunityProfile(credential.user.uid, newMember),
-          saveUserData(credential.user.uid, {
-            registeredMember: newRegisteredMember,
-            joinedIds: [],
-            paymentStatuses: {},
-            scheduleItems: [],
-            messageReadState: { community: false, members: {} },
-            notifications: [],
-          }),
-        ])
         setFirebaseUser(credential.user)
         setIsAuthenticated(true)
         setCommunityLoaded(false)
@@ -1441,7 +1471,17 @@ function App() {
     setSelectedEvent(null)
   }
 
-  function handleJoin(event) {
+  async function handleJoin(event) {
+    if (isFirebaseConfigured && firebaseUser) {
+      try {
+        const result = await joinCommunityEvent(event.id, firebaseUser, 'paid')
+        applyLocalJoin(result.event, { decrementSpots: false, syncSpots: result.event.spots, paymentStatus: 'paid' })
+        flash(`已报名「${event.title}」，费用 ¥${event.price}。`)
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+      }
+      return
+    }
     applyLocalJoin(event)
     flash(isAlipayEnabled ? `已报名「${event.title}」，费用 ¥${event.price}，请稍后完成支付。` : `已报名「${event.title}」，费用 ¥${event.price}。`)
   }
@@ -1469,7 +1509,17 @@ function App() {
     }
   }
 
-  function handlePayLater(event) {
+  async function handlePayLater(event) {
+    if (isFirebaseConfigured && firebaseUser) {
+      try {
+        const result = await joinCommunityEvent(event.id, firebaseUser, 'pending')
+        applyLocalJoin(result.event, { decrementSpots: false, syncSpots: result.event.spots, paymentStatus: 'pending' })
+        flash(`已报名「${event.title}」，之后可在“我的场次”完成支付。`)
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+      }
+      return
+    }
     applyLocalJoin(event, { paymentStatus: 'pending' })
     flash(`已报名「${event.title}」，之后可在“我的场次”完成支付。`)
   }
@@ -1502,13 +1552,14 @@ function App() {
     if (paymentOrder?.paymentUrl) window.location.href = paymentOrder.paymentUrl
   }
 
-  function handleRequestCancellation(event) {
+  async function handleRequestCancellation(event) {
     if (cancellationRequests.some((request) => request.eventId === event.id && request.status === 'pending')) {
       flash('这场的取消申请正在等待管理员审核。')
       return
     }
-    setCancellationRequests((current) => [...current, {
+    const request = {
       id: `cancel-${Date.now()}`,
+      uid: firebaseUser?.uid || 'local-demo',
       eventId: event.id,
       eventTitle: event.title,
       date: event.date,
@@ -1517,17 +1568,47 @@ function App() {
       venue: event.venue,
       requestedAt: '刚刚',
       status: 'pending',
-    }])
+      createdAt: Date.now(),
+    }
+    try {
+      const savedRequest = isFirebaseConfigured && firebaseUser
+        ? await createCancellationRequest(request)
+        : request
+      setCancellationRequests((current) => [...current, savedRequest])
+    } catch (error) {
+      flash(getFirebaseAuthErrorMessage(error))
+      return
+    }
     flash('取消报名申请已提交，等待管理员审核。')
   }
 
-  function handleCancellationReview(request, decision) {
+  async function handleCancellationReview(request, decision) {
+    if (isFirebaseConfigured && !isAdmin) {
+      flash('只有管理员可以审核取消报名申请。')
+      return
+    }
     if (decision === 'approve') {
+      try {
+        if (isFirebaseConfigured) {
+          await reviewCancellationRequest(request.id, decision, firebaseUser)
+        }
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+        return
+      }
       setCancellationRequests((current) => current.map((item) => item.id === request.id ? { ...item, status: 'approved', reviewedAt: '刚刚' } : item))
       setJoinedIds((current) => current.filter((id) => id !== request.eventId))
       setScheduleItems((current) => current.filter((item) => item.eventId !== request.eventId))
       setEvents((current) => current.map((item) => item.id === request.eventId ? { ...item, spots: Math.min(item.total, item.spots + 1) } : item))
       flash(`已批准「${request.eventTitle}」的取消报名申请。`)
+      return
+    }
+    try {
+      if (isFirebaseConfigured) {
+        await reviewCancellationRequest(request.id, decision, firebaseUser)
+      }
+    } catch (error) {
+      flash(getFirebaseAuthErrorMessage(error))
       return
     }
     setCancellationRequests((current) => current.map((item) => item.id === request.id ? { ...item, status: 'rejected', reviewedAt: '刚刚' } : item))
@@ -1538,12 +1619,46 @@ function App() {
     return cancellationRequests.filter((request) => request.status === 'pending')
   }
 
-  function handleSendMessage(text) {
+  async function handleSendMessage(text) {
     const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
-    const message = { id: Date.now(), author: '你', initials: '我', color: 'green', time, text, mine: true }
+    const message = {
+      id: Date.now(),
+      author: '你',
+      initials: '我',
+      color: 'green',
+      time,
+      text,
+      mine: true,
+      authorUid: firebaseUser?.uid || 'local-demo',
+      createdAt: Date.now(),
+    }
     if (focusMember) {
-      setDirectMessages((current) => ({ ...current, [focusMember.name]: [...(current[focusMember.name] || []), message] }))
+      if (isFirebaseConfigured && firebaseUser && focusMember.uid) {
+        try {
+          const savedMessage = await createDirectMessage({
+            ...message,
+            senderUid: firebaseUser.uid,
+            recipientName: focusMember.name,
+            participantUids: [firebaseUser.uid, focusMember.uid],
+          })
+          setDirectMessages((current) => ({ ...current, [focusMember.name]: [...(current[focusMember.name] || []), savedMessage] }))
+        } catch (error) {
+          flash(getFirebaseAuthErrorMessage(error))
+          return
+        }
+      } else {
+        setDirectMessages((current) => ({ ...current, [focusMember.name]: [...(current[focusMember.name] || []), message] }))
+      }
       flash(`消息已发给 ${focusMember.name}。`)
+      return
+    }
+    if (isFirebaseConfigured && firebaseUser) {
+      try {
+        const savedMessage = await createCommunityMessage(message)
+        setMessages((current) => [...current, savedMessage])
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+      }
       return
     }
     setMessages((current) => [...current, message])
@@ -1631,7 +1746,7 @@ function App() {
     }
   }
 
-  function handleCreatePost(event) {
+  async function handleCreatePost(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const text = String(form.get('text') || '').trim()
@@ -1640,8 +1755,9 @@ function App() {
       flash('写点内容再发布吧。')
       return
     }
-    setPosts((current) => [{
+    const post = {
       id: Date.now(),
+      authorUid: firebaseUser?.uid || 'local-demo',
       author: '你',
       initials: '我',
       color: 'green',
@@ -1651,25 +1767,54 @@ function App() {
       likes: 0,
       liked: false,
       comments: [],
-    }, ...current])
+      createdAt: Date.now(),
+    }
+    try {
+      const savedPost = isFirebaseConfigured && firebaseUser ? await createCommunityPost(post) : post
+      setPosts((current) => [savedPost, ...current])
+    } catch (error) {
+      flash(getFirebaseAuthErrorMessage(error))
+      return
+    }
     setShowPostComposer(false)
     flash('动态已发布，球友们现在都能看到。')
   }
 
-  function handleToggleLike(postId) {
-    setPosts((current) => current.map((post) => post.id === postId ? {
+  async function handleToggleLike(postId) {
+    const post = posts.find((item) => item.id === postId)
+    if (!post) return
+    const nextPost = {
       ...post,
       liked: !post.liked,
       likes: post.likes + (post.liked ? -1 : 1),
-    } : post))
+    }
+    setPosts((current) => current.map((item) => item.id === postId ? nextPost : item))
+    if (isFirebaseConfigured && typeof postId === 'string') {
+      try {
+        await updateCommunityPost(postId, { liked: nextPost.liked, likes: nextPost.likes })
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+      }
+    }
   }
 
-  function handleAddComment(postId, text) {
+  async function handleAddComment(postId, text) {
     const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
-    setPosts((current) => current.map((post) => post.id === postId ? {
-      ...post,
-      comments: [...post.comments, { id: Date.now(), author: '你', initials: '我', color: 'green', time, text }],
-    } : post))
+    const post = posts.find((item) => item.id === postId)
+    if (!post) return
+    const comment = { id: Date.now(), author: '你', initials: '我', color: 'green', time, text, authorUid: firebaseUser?.uid || 'local-demo' }
+    const nextComments = [...post.comments, comment]
+    setPosts((current) => current.map((item) => item.id === postId ? {
+      ...item,
+      comments: nextComments,
+    } : item))
+    if (isFirebaseConfigured && typeof postId === 'string') {
+      try {
+        await updateCommunityPost(postId, { comments: nextComments })
+      } catch (error) {
+        flash(getFirebaseAuthErrorMessage(error))
+      }
+    }
   }
 
   function switchNav(label) {
@@ -1747,6 +1892,10 @@ function App() {
 
   function handlePublishSubmit(event) {
     event.preventDefault()
+    if (isFirebaseConfigured && !isAdmin) {
+      flash('只有管理员可以发布社群场次。')
+      return
+    }
     const form = new FormData(event.currentTarget)
     const newEvent = {
       id: Date.now(),
@@ -1806,6 +1955,10 @@ function App() {
   }
 
   function resetCommunityData() {
+    if (isFirebaseConfigured && !isAdmin) {
+      flash('只有管理员可以恢复演示数据。')
+      return
+    }
     setEvents(initialEvents)
     setJoinedIds([])
     setCancellationRequests([])
@@ -1861,7 +2014,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button onClick={() => setShowPublish(true)} className="admin-action"><Plus size={17} /><span>发布新场次</span></button>
+          {isAdmin && <button onClick={() => setShowPublish(true)} className="admin-action"><Plus size={17} /><span>发布新场次</span></button>}
           <button className="sidebar-link" onClick={() => setShowSettings(true)}><Settings2 size={17} /><span>社群设置</span></button>
           <button type="button" className="admin-profile profile-trigger" onClick={() => { setProfileMember(currentUser); setShowProfile(true) }} aria-label="编辑我的名片">
             <Avatar initials={currentUser.initials} color={currentUser.color} />
@@ -1947,7 +2100,7 @@ function App() {
           ['成员', <UsersRound size={18} />],
         ].map(([label, icon, count]) => <button key={label} className={activeNav === label ? 'active' : ''} onClick={() => switchNav(label)}>{icon}<span>{label}</span>{count && <em>{count}</em>}</button>)}</nav>
         <button type="button" className="sidebar-link mobile-profile-link" onClick={() => { setProfileMember(currentUser); setShowProfile(true); setShowMobileNav(false) }}><UserRound size={18} /><span>编辑我的名片</span></button>
-        <button onClick={() => { setShowPublish(true); setShowMobileNav(false) }} className="admin-action"><Plus size={17} /><span>发布新场次</span></button>
+        {isAdmin && <button onClick={() => { setShowPublish(true); setShowMobileNav(false) }} className="admin-action"><Plus size={17} /><span>发布新场次</span></button>}
       </aside></div>}
 
       {showInvite && <div className="modal-backdrop" onMouseDown={() => setShowInvite(false)}><div className="modal" onMouseDown={(event) => event.stopPropagation()}>
@@ -1993,10 +2146,10 @@ function App() {
       {showSettings && <div className="modal-backdrop" onMouseDown={() => setShowSettings(false)}><div className="modal settings-modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" aria-label="关闭" onClick={() => setShowSettings(false)}><X size={18} /></button><div className="modal-icon yellow-icon"><Settings2 size={22} /></div><span className="eyebrow">COMMUNITY SETTINGS</span><h2>社群设置</h2><p>管理新成员加入时使用的邀请码，以及取消报名审核。</p>
         <div className="invite-admin-summary"><span>当前邀请码</span><strong>{inviteCode}</strong><button className="quiet-button" onClick={handleOpenInvite}><Plus size={15} /> 发放新邀请码</button></div>
-        <div className="cancellation-review"><div className="review-heading"><div><span className="eyebrow">CANCELLATION REVIEW</span><h3>取消报名审核</h3></div><span className="review-count">{pendingCancellationRequests().length} 待处理</span></div>
-          {pendingCancellationRequests().length === 0 ? <div className="review-empty"><Check size={16} /> 暂无待处理的取消报名申请</div> : <div className="review-list">{pendingCancellationRequests().map((request) => <article className="review-item" key={request.id}><div className="review-item-copy"><strong>{request.eventTitle}</strong><span>{request.date} · {request.time}</span><small>{request.venue} · {request.requestedAt}提交</small></div><div className="review-item-actions"><button className="review-reject" onClick={() => handleCancellationReview(request, 'reject')}>驳回</button><button className="review-approve" onClick={() => handleCancellationReview(request, 'approve')}><Check size={13} /> 批准</button></div></article>)}</div>}
+        <div className="cancellation-review"><div className="review-heading"><div><span className="eyebrow">CANCELLATION REVIEW</span><h3>取消报名审核</h3></div><span className="review-count">{isAdmin ? `${pendingCancellationRequests().length} 待处理` : '管理员专属'}</span></div>
+          {!isAdmin ? <div className="review-empty"><ShieldCheck size={16} /> 只有管理员可以审核取消报名申请</div> : pendingCancellationRequests().length === 0 ? <div className="review-empty"><Check size={16} /> 暂无待处理的取消报名申请</div> : <div className="review-list">{pendingCancellationRequests().map((request) => <article className="review-item" key={request.id}><div className="review-item-copy"><strong>{request.eventTitle}</strong><span>{request.date} · {request.time}</span><small>{request.venue} · {request.requestedAt}提交</small></div><div className="review-item-actions"><button className="review-reject" onClick={() => handleCancellationReview(request, 'reject')}>驳回</button><button className="review-approve" onClick={() => handleCancellationReview(request, 'approve')}><Check size={13} /> 批准</button></div></article>)}</div>}
         </div>
-        <div className="settings-actions"><button className="quiet-button" onClick={copyCode}><Copy size={15} /> 复制邀请码</button>{isAdmin && <button className="quiet-button" onClick={handleOpenAdminData}><UsersRound size={15} /> 查看成员数据</button>}{isOwner && <button className="quiet-button" onClick={() => setShowAdminManagement(true)}><ShieldCheck size={15} /> 设置管理员</button>}<button className="danger-button" onClick={resetCommunityData}>恢复演示数据</button></div>
+        <div className="settings-actions"><button className="quiet-button" onClick={copyCode}><Copy size={15} /> 复制邀请码</button>{isAdmin && <button className="quiet-button" onClick={handleOpenAdminData}><UsersRound size={15} /> 查看成员数据</button>}{isOwner && <button className="quiet-button" onClick={() => setShowAdminManagement(true)}><ShieldCheck size={15} /> 设置管理员</button>}{isAdmin && <button className="danger-button" onClick={resetCommunityData}>恢复演示数据</button>}</div>
       </div></div>}
 
       {showAdminData && <AdminUserDataModal users={adminUsers} events={events} communityAccess={communityAccess} loading={adminUsersLoading} onClose={() => setShowAdminData(false)} />}

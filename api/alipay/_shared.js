@@ -3,6 +3,7 @@ import { getAuth } from 'firebase-admin/auth'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 
 const COMMUNITY_ID = 'at-club'
+export { FieldValue }
 
 let firebaseServices
 
@@ -188,6 +189,14 @@ export function handleApiError(response, error) {
   const messages = {
     'alipay-auth-required': '请先登录后再支付。',
     'payment-order-not-found': '支付订单不存在。',
+    'event-required': '请选择要报名的场次。',
+    'event-sold-out': '这场已经满员。',
+    'invalid-payment-status': '报名状态无效。',
+    'auth-required': '请先登录后再报名。',
+    'admin-required': '只有管理员可以执行此操作。',
+    'cancellation-not-found': '取消报名申请不存在。',
+    'cancellation-already-reviewed': '这条取消报名申请已经处理过了。',
+    'invalid-cancellation-review': '取消申请审核参数无效。',
     'payment-amount-mismatch': '支付金额校验失败。',
     'payment-email-required': '当前账号没有邮箱，无法创建支付订单。',
     'xpay-payment-request-failed': 'XPay 支付服务暂时不可用。',
