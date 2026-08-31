@@ -68,11 +68,33 @@ export async function isRegisteredMember(user) {
     || isConfiguredOwner(user)
   ) return true
 
-  const [profileSnapshot, accessSnapshot] = await Promise.all([
+  const [profileSnapshot, userSnapshot, accessSnapshot] = await Promise.all([
     getDoc(doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)),
+    getDoc(doc(db, 'communities', COMMUNITY_ID, 'users', user.uid)),
     getDoc(doc(db, 'communityAccess', COMMUNITY_ID)),
   ])
-  return profileSnapshot.exists() || accessSnapshot.data()?.ownerUid === user.uid
+  return profileSnapshot.exists()
+    || Boolean(userSnapshot.data()?.registeredMember)
+    || accessSnapshot.data()?.ownerUid === user.uid
+}
+
+export async function repairMemberProfile(user) {
+  if (!user || !db) return false
+  const profileRef = doc(db, 'communities', COMMUNITY_ID, 'profiles', user.uid)
+  const userSnapshot = await getDoc(doc(db, 'communities', COMMUNITY_ID, 'users', user.uid))
+  const profileSnapshot = await getDoc(profileRef)
+  if (profileSnapshot.exists() || !userSnapshot.exists() || !userSnapshot.data()?.registeredMember) return false
+
+  const registeredMember = userSnapshot.data()?.registeredMember || {}
+  const nickname = String(registeredMember.nickname || registeredMember.name || user.displayName || user.email?.split('@')[0] || '新成员')
+  await setDoc(profileRef, {
+    nickname,
+    bio: String(registeredMember.bio || ''),
+    initials: nickname.slice(0, 1).toUpperCase(),
+    color: String(registeredMember.color || 'green'),
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
+  return true
 }
 
 export async function updateFirebaseProfile(user, name) {

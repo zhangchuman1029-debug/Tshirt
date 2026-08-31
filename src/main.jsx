@@ -60,6 +60,7 @@ import {
   loginWithFirebase,
   logoutFromFirebase,
   registerWithFirebase,
+  repairMemberProfile,
   reviewCancellationRequest,
   saveCommunityAccess,
   saveCommunityData,
@@ -1064,6 +1065,11 @@ function App() {
         if (!(await isRegisteredMember(user))) {
           await logoutFromFirebase()
           return
+        }
+        try {
+          await repairMemberProfile(user)
+        } catch {
+          setCloudError('账号已验证，但旧成员资料修复失败，请检查最新 Firestore Rules。')
         }
         setFirebaseUser(user)
         setIsAuthenticated(true)
