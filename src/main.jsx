@@ -1009,6 +1009,7 @@ function App() {
   const [notice, setNotice] = useState('')
   const [inviteCode, setInviteCode] = useState(() => readStoredValue('inviteCode', generateInviteCode()))
   const [members, setMembers] = useState(() => readStoredValue('members', initialMembers))
+  const [communityProfileCount, setCommunityProfileCount] = useState(() => isFirebaseConfigured ? 0 : null)
   const [registeredMember, setRegisteredMember] = useState(() => readStoredValue('registeredMember', null))
   const [messages, setMessages] = useState(() => readStoredValue('messages', starterMessages))
   const [directMessages, setDirectMessages] = useState(() => readStoredValue('directMessages', {}))
@@ -1021,7 +1022,7 @@ function App() {
 
   const joinedCount = joinedIds.length
   const spotsLeft = useMemo(() => events.reduce((sum, event) => sum + event.spots, 0), [events])
-  const communityMemberCount = members.length + 123
+  const communityMemberCount = isFirebaseConfigured ? communityProfileCount : members.length + 123
   const unreadMessageCount = (messageReadState.community ? 0 : 1) + (members[0] && !messageReadState.members?.[members[0].name] ? 1 : 0)
   const isOwner = !isFirebaseConfigured || isOwnerClaim
   const currentUser = useMemo(() => {
@@ -1225,7 +1226,11 @@ function App() {
     if (!firebaseUser) return undefined
     return subscribeToCommunityProfiles((profiles) => {
       communityProfilesRef.current = profiles
-      setMembers((current) => mergeCommunityProfiles(current, profiles))
+      setCommunityProfileCount(profiles.length)
+      setMembers((current) => {
+        const cloudMembers = current.filter((member) => member.uid)
+        return mergeCommunityProfiles(cloudMembers, profiles)
+      })
     }, () => setCloudError('成员名片暂时无法同步，当前页面仍可继续使用。'))
   }, [firebaseUser])
 
