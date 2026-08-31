@@ -12,9 +12,16 @@ import { addDoc, collection, doc, getDoc, getFirestore, onSnapshot, query, runTr
 
 const COMMUNITY_ID = 'at-club'
 
+function readFirebaseEnv(name) {
+  return String(import.meta.env[name] || '')
+    .trim()
+    .replace(/[;,]+$/, '')
+    .trim()
+}
+
 function isConfiguredOwner(user) {
-  const ownerUid = (import.meta.env.VITE_FIREBASE_OWNER_UID || '').trim()
-  const ownerEmail = (import.meta.env.VITE_FIREBASE_OWNER_EMAIL || '').trim().toLowerCase()
+  const ownerUid = readFirebaseEnv('VITE_FIREBASE_OWNER_UID')
+  const ownerEmail = readFirebaseEnv('VITE_FIREBASE_OWNER_EMAIL').toLowerCase()
   return Boolean(
     user && (
       (ownerUid && user.uid === ownerUid)
@@ -24,12 +31,12 @@ function isConfiguredOwner(user) {
 }
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: readFirebaseEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: readFirebaseEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: readFirebaseEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: readFirebaseEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: readFirebaseEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: readFirebaseEnv('VITE_FIREBASE_APP_ID'),
 }
 
 export const isFirebaseConfigured = Object.values(firebaseConfig).every(Boolean)
@@ -416,12 +423,20 @@ export function getFirebaseAuthErrorMessage(error) {
   const code = error?.code || error?.message
   const messages = {
     'auth/invalid-credential': '邮箱或密码不正确。',
+    'auth/wrong-password': '邮箱或密码不正确。',
     'auth/invalid-email': '请输入有效的邮箱地址。',
     'auth/email-already-in-use': '这个邮箱已经注册过了，请直接登录。',
     'auth/weak-password': '密码至少需要 6 位。',
     'auth/user-not-found': '没有找到这个邮箱对应的账号。',
+    'auth/user-disabled': '这个账号已被 Firebase 禁用，请检查 Authentication 用户列表。',
     'auth/too-many-requests': '尝试次数过多，请稍后再试。',
     'auth/network-request-failed': '网络连接失败，请检查网络后再试。',
+    'auth/operation-not-allowed': 'Firebase 尚未开启 Email/Password 登录，请到 Authentication → Sign-in method 开启。',
+    'auth/invalid-api-key': 'Firebase API Key 无效，请检查 Vercel 中的 VITE_FIREBASE_API_KEY。',
+    'auth/invalid-app-id': 'Firebase App ID 无效，请检查 Vercel 中的 VITE_FIREBASE_APP_ID。',
+    'auth/app-not-authorized': '当前网站未被 Firebase 授权，请检查 Firebase Web App 配置。',
+    'auth/unauthorized-domain': '当前网站域名未加入 Firebase Authorized domains。',
+    'auth/internal-error': 'Firebase 服务内部错误，请检查线上环境变量后重新部署。',
     'auth/member-not-registered': '该账号尚未通过社群邀请码注册，请先注册后再登录。',
     'auth-required': '请先登录后再报名。',
     'admin-required': '只有管理员可以执行此操作。',
@@ -435,5 +450,5 @@ export function getFirebaseAuthErrorMessage(error) {
     'invalid-invite-code': '邀请码不正确，请向管理员确认后再试。',
     'invite-code-exists': '这个邀请码已经存在，请换一个新的。',
   }
-  return messages[code] || '登录服务暂时不可用，请稍后再试。'
+  return messages[code] || `登录失败（${code || '未知错误'}），请检查 Firebase 配置。`
 }
