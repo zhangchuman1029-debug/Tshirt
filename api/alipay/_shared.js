@@ -8,14 +8,24 @@ export { FieldValue }
 let firebaseServices
 
 function requiredEnv(name) {
-  const value = process.env[name]
+  const value = String(process.env[name] || '').trim()
   if (!value) throw new Error(`missing-env:${name}`)
   return value
 }
 
 export function getFirebaseServices() {
   if (firebaseServices) return firebaseServices
-  const serviceAccount = JSON.parse(requiredEnv('FIREBASE_SERVICE_ACCOUNT_JSON'))
+  let serviceAccount
+  try {
+    serviceAccount = JSON.parse(requiredEnv('FIREBASE_SERVICE_ACCOUNT_JSON'))
+  } catch (error) {
+    if (error.message?.startsWith('missing-env:')) throw error
+    throw new Error('invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON')
+  }
+  if (!serviceAccount || typeof serviceAccount !== 'object'
+    || !serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+    throw new Error('invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON')
+  }
   const app = getApps().length
     ? getApps()[0]
     : initializeApp({
@@ -185,7 +195,8 @@ export async function finalizePaidOrder(outTradeNo, payment = {}) {
 }
 
 export function handleApiError(response, error) {
-  const statusCode = error.statusCode || 500
+  const statusCode = error.statusCode
+    || (/^(missing-env|invalid-env):/.test(error.message || '') ? 503 : 500)
   const messages = {
     'alipay-auth-required': '请先登录后再支付。',
     'payment-order-not-found': '支付订单不存在。',
@@ -209,6 +220,7 @@ export function handleApiError(response, error) {
     'community-not-found': '社群数据暂时不可用。',
     'missing-env:XPAY_BASE_URL': 'XPay 支付服务尚未配置。',
     'missing-env:FIREBASE_SERVICE_ACCOUNT_JSON': '支付服务端尚未连接 Firebase。',
+    'invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON': '报名服务端 Firebase 凭据格式错误，请重新粘贴完整的 Service Account JSON。',
   }
   const code = error.message || 'alipay-server-error'
   sendJson(response, statusCode, { code, message: messages[code] || '支付服务暂时不可用，请稍后再试。' })
