@@ -1291,9 +1291,11 @@ function App() {
   }), [joinedIds, paymentStatuses, scheduleItems, messageReadState, notifications, registeredMember])
 
   useEffect(() => {
-    if (!cloudReady) return
-    saveCommunityData(communityCloudData).catch(() => setCloudError('云端社群数据保存失败，稍后会自动重试。'))
-  }, [cloudReady, communityCloudData])
+    if (!cloudReady || !isAdmin) return
+    saveCommunityData(communityCloudData).catch((error) => {
+      setCloudError(`云端社群数据保存失败（${error?.code || 'unknown'}），请检查 Firestore Rules。`)
+    })
+  }, [cloudReady, isAdmin, communityCloudData])
 
   useEffect(() => {
     if (!cloudReady || !firebaseUser) return
