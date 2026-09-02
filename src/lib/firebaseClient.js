@@ -439,16 +439,22 @@ export function getFirebaseAuthErrorMessage(error) {
     'auth/internal-error': 'Firebase 服务内部错误，请检查线上环境变量后重新部署。',
     'auth/member-not-registered': '该账号尚未通过社群邀请码注册，请先注册后再登录。',
     'auth-required': '请先登录后再报名。',
+    'already-joined': '你已经报名这场活动了。',
     'admin-required': '只有管理员可以执行此操作。',
     'event-required': '请选择要报名的场次。',
     'event-sold-out': '这场已经满员。',
     'cancellation-not-found': '取消报名申请不存在。',
     'cancellation-already-reviewed': '这条取消报名申请已经处理过了。',
     'invalid-cancellation-review': '取消申请审核参数无效。',
-    'permission-denied': 'Firebase 权限不足，请发布最新 firestore.rules。',
+    'permission-denied': '权限被 Firestore 拒绝。请发布最新 firestore.rules，并让 Owner 退出后重新登录以刷新权限。',
     'firebase-not-configured': 'Firebase 尚未配置，请先填写 .env.local。',
     'invalid-invite-code': '邀请码不正确，请向管理员确认后再试。',
     'invite-code-exists': '这个邀请码已经存在，请换一个新的。',
+    'community-not-found': '社群活动数据尚未初始化，请先让 Owner 登录并完成一次社群初始化。',
+    'missing-env:FIREBASE_SERVICE_ACCOUNT_JSON': '报名服务端没有连接 Firebase，请在 Vercel 配置 FIREBASE_SERVICE_ACCOUNT_JSON。',
+    'invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON': '报名服务端 Firebase 凭据格式错误，请重新粘贴完整的 Service Account JSON。',
+    'join-http-500': '报名接口发生服务器错误，请检查 Vercel Functions 日志和 FIREBASE_SERVICE_ACCOUNT_JSON。',
+    'join-http-503': '报名服务端配置不完整，请在 Vercel 配置 Firebase Admin 环境变量后重新部署。',
   }
   return messages[code] || `登录失败（${code || '未知错误'}），请检查 Firebase 配置。`
 }
