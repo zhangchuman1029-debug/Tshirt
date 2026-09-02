@@ -17,5 +17,12 @@
     "react": "latest",
     "react-dom": "latest",
     "vite": "latest"
+  },
+  "overrides": {
+    "firebase-admin": {
+      "jwks-rsa": {
+        "jose": "4.15.9"
+      }
+    }
   }
 }
