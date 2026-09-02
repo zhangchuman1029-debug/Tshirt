@@ -470,6 +470,7 @@ export function getFirebaseAuthErrorMessage(error) {
     'invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON': '报名服务端 Firebase 凭据格式错误，请重新粘贴完整的 Service Account JSON。',
     'join-http-500': '报名接口发生服务器错误，请检查 Vercel Functions 日志和 FIREBASE_SERVICE_ACCOUNT_JSON。',
     'join-http-503': '报名服务端配置不完整，请在 Vercel 配置 Firebase Admin 环境变量后重新部署。',
+    'event-cancelled': '这场活动已取消发布。',
   }
   return messages[code] || `登录失败（${code || '未知错误'}），请检查 Firebase 配置。`
 }

@@ -113,6 +113,10 @@ function getEventPublisherRole(event) {
   return event?.publisherRole === 'member' ? 'member' : 'administrator'
 }
 
+function isEventCancelled(event) {
+  return event?.status === '已取消' || Boolean(event?.cancelledAt)
+}
+
 function isPresenceOnline(lastSeen, now = Date.now()) {
   const timestamp = typeof lastSeen?.toMillis === 'function'
     ? lastSeen.toMillis()
@@ -348,7 +352,8 @@ function EventCard({ event, joined, onJoin, onOpen }) {
 function EventDetailModal({ event, joined, members, onClose, onJoin, onCopyAddress }) {
   if (!event) return null
   const registeredCount = event.total - event.spots
-  const soldOut = event.spots === 0 && !joined
+  const cancelled = isEventCancelled(event)
+  const soldOut = !cancelled && event.spots === 0 && !joined
   const publisherRole = getEventPublisherRole(event)
 
   return (
@@ -366,9 +371,9 @@ function EventDetailModal({ event, joined, members, onClose, onJoin, onCopyAddre
           <div><Clock3 size={16} /><span><strong>{event.time}</strong><small>活动时间</small></span></div>
           <div><MapPin size={16} /><span><strong>{event.venue}</strong><small>{event.address}</small></span><button className="icon-button" aria-label="复制场地地址" onClick={() => onCopyAddress(event.address)}><Copy size={15} /></button></div>
         </div>
-        <div className="event-capacity"><div><span>报名进度</span><strong>{registeredCount} / {event.total} 人</strong></div><div className="capacity-track"><span style={{ width: `${Math.min(100, (registeredCount / event.total) * 100)}%` }} /></div><small>{event.spots > 0 ? `还剩 ${event.spots} 个位置` : '当前已满员'}</small></div>
+        <div className="event-capacity"><div><span>报名进度</span><strong>{registeredCount} / {event.total} 人</strong></div><div className="capacity-track"><span style={{ width: `${Math.min(100, (registeredCount / event.total) * 100)}%` }} /></div><small>{cancelled ? '该场次已取消发布' : event.spots > 0 ? `还剩 ${event.spots} 个位置` : '当前已满员'}</small></div>
         <div className="event-attendees"><div className="detail-heading"><strong>已报名球友</strong><span>{registeredCount} 人</span></div><div className="event-attendee-list">{members.slice(0, Math.min(registeredCount, 5)).map((member) => <div key={member.name}><Avatar initials={member.initials} color={member.color} size="small" /><span>{member.name}</span></div>)}{registeredCount > 5 && <span className="attendee-more">+{registeredCount - 5}</span>}</div></div>
-        <button className={`primary-button full-width detail-join-button ${joined ? 'is-joined' : ''}`} onClick={() => onJoin(event)} disabled={soldOut}>{joined ? <><Check size={16} /> 已在报名名单</> : soldOut ? '这场已满员' : <>立即报名 · ¥ {event.price} <ArrowUpRight size={16} /></>}</button>
+        <button className={`primary-button full-width detail-join-button ${joined ? 'is-joined' : ''}`} onClick={() => onJoin(event)} disabled={cancelled || soldOut}>{joined ? <><Check size={16} /> 已在报名名单</> : cancelled ? '已取消发布' : soldOut ? '这场已满员' : <>立即报名 · ¥ {event.price} <ArrowUpRight size={16} /></>}</button>
       </section>
     </div>
   )
@@ -459,7 +464,7 @@ function NotificationsModal({ notifications, onClose, onSelect, onReadAll }) {
 function SearchModal({ events, members, communityAccess, onClose, onSelect }) {
   const [query, setQuery] = useState('')
   const normalizedQuery = query.trim().toLowerCase()
-  const eventResults = events.filter((event) => `${event.title} ${event.venue} ${event.level}`.toLowerCase().includes(normalizedQuery))
+  const eventResults = events.filter((event) => !isEventCancelled(event) && `${event.title} ${event.venue} ${event.level}`.toLowerCase().includes(normalizedQuery))
   const memberResults = members.filter((member) => `${getMemberName(member)} ${getRoleKey(member, communityAccess)}`.toLowerCase().includes(normalizedQuery))
 
   return (
@@ -532,7 +537,7 @@ function MySessionsView({ events, joinedIds, paymentStatuses, cancellationReques
   )
 }
 
-function PublishedSessionsView({ events, publisherUid, onOpen, onPublish }) {
+function PublishedSessionsView({ events, publisherUid, onOpen, onPublish, onCancel }) {
   const publishedEvents = events.filter((event) => event.publisherUid === publisherUid)
 
   return (
@@ -553,11 +558,13 @@ function PublishedSessionsView({ events, publisherUid, onOpen, onPublish }) {
           const publishedDate = event.publishedAt
             ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(event.publishedAt))
             : '历史场次'
-          return <article className="my-session published-session" key={event.id}>
+          const cancelled = isEventCancelled(event)
+          const canCancel = !cancelled && registeredCount < 6
+          return <article className={`my-session published-session ${cancelled ? 'is-cancelled' : ''}`} key={event.id}>
             <div className={`session-accent accent-${event.accent}`} />
             <div className="session-date"><strong>{event.date}</strong><span>{event.day}</span></div>
-            <div className="session-summary"><span className="eyebrow">PUBLISHED · {publishedDate}</span><h2>{event.title}</h2><span><MapPin size={14} /> {event.venue}</span><span><Clock3 size={14} /> {event.time}</span></div>
-            <div className="session-side"><strong>{registeredCount} / {event.total}</strong><span>已报名</span><button className="quiet-button" onClick={() => onOpen(event)}>查看详情 <ArrowUpRight size={14} /></button></div>
+            <div className="session-summary"><span className="eyebrow">{cancelled ? 'CANCELLED' : 'PUBLISHED'} · {publishedDate}</span><h2>{event.title}</h2><span><MapPin size={14} /> {event.venue}</span><span><Clock3 size={14} /> {event.time}</span></div>
+            <div className="session-side"><strong>{registeredCount} / {event.total}</strong><span>{cancelled ? '已取消发布' : '已报名'}</span><button className="quiet-button" onClick={() => onOpen(event)}>查看详情 <ArrowUpRight size={14} /></button>{cancelled ? <span className="session-payment-status">记录已保留</span> : canCancel ? <button className="quiet-button cancel-published-button" onClick={() => onCancel(event)}>取消发布 <X size={14} /></button> : <span className="session-payment-status">已达 6 人，不可取消</span>}</div>
           </article>
         })}
       </div>}
@@ -1068,7 +1075,8 @@ function App() {
   const registrationInProgressRef = useRef(false)
 
   const joinedCount = joinedIds.length
-  const spotsLeft = useMemo(() => events.reduce((sum, event) => sum + event.spots, 0), [events])
+  const activeEvents = useMemo(() => events.filter((event) => !isEventCancelled(event)), [events])
+  const spotsLeft = useMemo(() => activeEvents.reduce((sum, event) => sum + event.spots, 0), [activeEvents])
   const communityMemberCount = isFirebaseConfigured ? communityProfileCount : members.length + 123
   const onlineUids = useMemo(() => new Set(
     presence
@@ -1539,6 +1547,10 @@ function App() {
   }
 
   function requestJoin(event) {
+    if (isEventCancelled(event)) {
+      flash('这场活动已取消发布。')
+      return
+    }
     if (joinedIds.includes(event.id)) {
       flash('你已经在名单里啦，期待球场见。')
       return
@@ -1569,6 +1581,10 @@ function App() {
   }
 
   async function handleJoin(event) {
+    if (isEventCancelled(event)) {
+      flash('这场活动已取消发布。')
+      return
+    }
     if (isFirebaseConfigured && firebaseUser) {
       try {
         const result = await joinCommunityEvent(event.id, firebaseUser, 'paid')
@@ -2021,6 +2037,33 @@ function App() {
     flash('场次已发布，成员现在可以报名了。')
   }
 
+  function handleCancelPublishedEvent(event) {
+    const registeredCount = Math.max(0, Number(event.total) - Number(event.spots))
+    if (event.publisherUid !== publisherUid) {
+      flash('只有场次发布者可以取消发布。')
+      return
+    }
+    if (isEventCancelled(event)) {
+      flash('这场活动已经取消发布。')
+      return
+    }
+    if (registeredCount >= 6) {
+      flash('报名人数达到 6 人后不能取消发布。')
+      return
+    }
+    if (!window.confirm(`确定取消「${event.title}」的发布吗？报名记录会保留，但场次将从首页隐藏。`)) return
+    setEvents((current) => current.map((item) => item.id === event.id
+      ? {
+        ...item,
+        status: '已取消',
+        cancelledAt: Date.now(),
+        cancelledByUid: publisherUid,
+      }
+      : item))
+    if (selectedEvent?.id === event.id) setSelectedEvent(null)
+    flash('场次已取消发布，记录仍保留在“我的发布”。')
+  }
+
   function handleCreateScheduleItem(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -2171,7 +2214,7 @@ function App() {
             <SectionLabel action="查看全部" onAction={() => flash('目前已经是全部公开场次。')}>近期场次</SectionLabel>
             <div className="section-intro"><p>挑一场合适的，来和熟悉的球友打个照面。</p><span>按时间排序 · 深圳</span></div>
             <div className="events-list">
-              {events.map((event) => <EventCard key={event.id} event={event} joined={joinedIds.includes(event.id)} onJoin={requestJoin} onOpen={setSelectedEvent} />)}
+              {activeEvents.map((event) => <EventCard key={event.id} event={event} joined={joinedIds.includes(event.id)} onJoin={requestJoin} onOpen={setSelectedEvent} />)}
             </div>
           </section>
 
@@ -2187,7 +2230,7 @@ function App() {
           </section>
           </>}
           {activeNav === '我的场次' && <MySessionsView events={events} joinedIds={joinedIds} paymentStatuses={paymentStatuses} cancellationRequests={cancellationRequests} onExplore={() => switchNav('首页')} onPayNow={handleStartPayment} onRequestCancel={handleRequestCancellation} />}
-          {activeNav === '我的发布' && isAdmin && <PublishedSessionsView events={events} publisherUid={publisherUid} onOpen={setSelectedEvent} onPublish={() => setShowPublish(true)} />}
+          {activeNav === '我的发布' && isAdmin && <PublishedSessionsView events={events} publisherUid={publisherUid} onOpen={setSelectedEvent} onPublish={() => setShowPublish(true)} onCancel={handleCancelPublishedEvent} />}
           {activeNav === '个人日程' && <PersonalScheduleView events={events} joinedIds={joinedIds} scheduleItems={scheduleItems} onAdd={() => setShowScheduleComposer(true)} onToggle={toggleScheduleItem} onDelete={deleteScheduleItem} />}
           {activeNav === '消息' && <MessagesView messages={messages} directMessages={directMessages} members={members} focusMember={focusMember} messageReadState={messageReadState} onlineCount={onlineCount} onlineUids={onlineUids} onSend={handleSendMessage} onSelectMember={(member) => setFocusMember(member)} onBackToCommunity={() => setFocusMember(null)} onMarkRead={handleMarkMessageRead} />}
           {activeNav === '成员' && <MembersView members={members} currentUser={currentUser} communityAccess={communityAccess} onInvite={handleOpenInvite} onContact={handleContactMember} />}

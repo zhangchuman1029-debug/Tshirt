@@ -29,6 +29,9 @@ export default async function handler(request, response) {
     const community = communitySnapshot.data()
     const event = (community.events || []).find((item) => String(item.id) === String(eventId))
     if (!event) return sendJson(response, 404, { code: 'event-not-found', message: '场次不存在或已下架。' })
+    if (event.status === '已取消' || event.cancelledAt) {
+      return sendJson(response, 409, { code: 'event-cancelled', message: '这场活动已取消发布。' })
+    }
 
     const userSnapshot = await db.doc(`communities/at-club/users/${user.uid}`).get()
     const userData = userSnapshot.exists ? userSnapshot.data() : {}

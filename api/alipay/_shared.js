@@ -158,6 +158,11 @@ export async function finalizePaidOrder(outTradeNo, payment = {}) {
     const scheduleItems = Array.isArray(userData.scheduleItems) ? userData.scheduleItems : []
 
     if (!event) throw new Error('event-not-found')
+    if (event.status === '已取消' || event.cancelledAt) {
+      const error = new Error('event-cancelled')
+      error.statusCode = 409
+      throw error
+    }
     if (joinedIds.some((id) => String(id) === String(event.id))) {
       transaction.set(userRef, {
         paymentStatuses: {
@@ -220,6 +225,7 @@ export function handleApiError(response, error) {
     'alipay-auth-required': '请先登录后再支付。',
     'payment-order-not-found': '支付订单不存在。',
     'event-required': '请选择要报名的场次。',
+    'event-cancelled': '这场活动已取消发布。',
     'event-sold-out': '这场已经满员。',
     'invalid-payment-status': '报名状态无效。',
     'auth-required': '请先登录后再报名。',

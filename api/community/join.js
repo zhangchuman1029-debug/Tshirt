@@ -40,6 +40,11 @@ export default async function handler(request, response) {
       const events = Array.isArray(community.events) ? community.events : []
       const event = events.find((item) => String(item.id) === String(eventId))
       if (!event) throw new Error('event-not-found')
+      if (event.status === '已取消' || event.cancelledAt) {
+        const error = new Error('event-cancelled')
+        error.statusCode = 409
+        throw error
+      }
 
       const joinedIds = Array.isArray(userData.joinedIds) ? userData.joinedIds : []
       const paymentStatuses = userData.paymentStatuses || {}

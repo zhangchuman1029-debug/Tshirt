@@ -137,6 +137,7 @@ button { color: inherit; border: 0; cursor: pointer; }
 .empty-state p { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
 .my-session-list { display: grid; gap: 12px; margin-top: 28px; }
 .my-session { position: relative; display: grid; grid-template-columns: 6px 120px minmax(0, 1fr) 130px; gap: 24px; align-items: center; min-height: 144px; overflow: hidden; padding: 20px 24px 20px 0; border: 1px solid var(--line); background: rgba(23, 50, 41, .68); }
+.published-session.is-cancelled { opacity: .72; }.published-session.is-cancelled .session-accent { filter: grayscale(1); }.cancel-published-button { color: var(--coral); }.cancel-published-button:hover { color: var(--acid); }
 .session-accent { align-self: stretch; background: var(--accent); }.session-accent.accent-mint { --accent: var(--acid); }.session-accent.accent-yellow { --accent: #eacb62; }.session-accent.accent-coral { --accent: var(--coral); }.session-accent.accent-blue { --accent: var(--sky); }
 .session-date { display: grid; gap: 5px; justify-items: center; padding-left: 2px; }.session-date strong { color: var(--cream); font-family: 'DM Mono', monospace; font-size: 17px; }.session-date span { color: var(--acid); font-size: 11px; }
 .session-summary { display: grid; gap: 7px; min-width: 0; }.session-summary h2 { margin: 0; color: var(--cream); font-size: 17px; }.session-summary > span:not(.eyebrow) { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
