@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   AtSign,
   Bell,
+  Camera,
   CalendarDays,
   Check,
   CheckCheck,
@@ -20,6 +21,8 @@ import {
   Eye,
   EyeOff,
   Heart,
+  ImagePlus,
+  LoaderCircle,
   MailCheck,
   House,
   LockKeyhole,
@@ -66,6 +69,7 @@ import {
   saveCommunityData,
   saveCommunityProfile,
   saveUserData,
+  uploadCommunityAvatar,
   publishCommunityPresence,
   subscribeToAuth,
   subscribeToCommunityAccess,
@@ -86,6 +90,7 @@ import './styles.css'
 const COMMUNITY_NAME = 'A&T club'
 const BRAND_SLOGAN = 'ambition&together'
 const STORAGE_PREFIX = 'at-club.'
+const HERO_BALL_IMAGE = 'https://image.pngaaa.com/701/538701-middle.png'
 const ROLE_LABELS = { owner: 'Owner', administrator: 'Administrator', member: 'Member' }
 const ROLE_FILTERS = [
   { key: 'all', label: '全部成员' },
@@ -115,6 +120,16 @@ function getEventPublisherRole(event) {
 
 function isEventCancelled(event) {
   return event?.status === '已取消' || Boolean(event?.cancelledAt)
+}
+
+function getRegisteredCount(event) {
+  return Math.max(0, Number(event?.total || 0) - Number(event?.spots || 0))
+}
+
+function getEventAttendees(event) {
+  return Array.isArray(event?.attendees)
+    ? event.attendees.filter((attendee) => attendee && typeof attendee === 'object' && (attendee.uid || attendee.name))
+    : []
 }
 
 function isPresenceOnline(lastSeen, now = Date.now()) {
@@ -172,6 +187,11 @@ const initialEvents = [
     status: '报名中',
     accent: 'mint',
     publisherRole: 'administrator',
+    attendees: [
+      { uid: 'demo-coach', name: '林教练', initials: '林', color: 'orange' },
+      { uid: 'demo-mina', name: 'Mina', initials: 'M', color: 'blue' },
+      { uid: 'demo-azhe', name: '阿哲', initials: '阿', color: 'purple' },
+    ],
   },
   {
     id: 2,
@@ -188,6 +208,11 @@ const initialEvents = [
     status: '报名中',
     accent: 'yellow',
     publisherRole: 'member',
+    attendees: [
+      { uid: 'demo-yuki', name: 'Yuki', initials: 'Y', color: 'pink' },
+      { uid: 'demo-xiaoman', name: '小满', initials: '小', color: 'green' },
+      { uid: 'demo-mina', name: 'Mina', initials: 'M', color: 'blue' },
+    ],
   },
   {
     id: 3,
@@ -204,6 +229,10 @@ const initialEvents = [
     status: '报名中',
     accent: 'coral',
     publisherRole: 'administrator',
+    attendees: [
+      { uid: 'demo-coach', name: '林教练', initials: '林', color: 'orange' },
+      { uid: 'demo-yuki', name: 'Yuki', initials: 'Y', color: 'pink' },
+    ],
   },
 ]
 
@@ -271,6 +300,45 @@ function readStoredValue(key, fallback) {
   }
 }
 
+function compressPostImage(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const maxDimension = 1280
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+      const context = canvas.getContext('2d')
+      if (!context) {
+        reject(new Error('image-processing-failed'))
+        return
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      let dataUrl = canvas.toDataURL('image/jpeg', 0.72)
+      if (dataUrl.length > 650000) {
+        const compactScale = Math.min(1, 960 / Math.max(image.naturalWidth, image.naturalHeight))
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * compactScale))
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * compactScale))
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        dataUrl = canvas.toDataURL('image/jpeg', 0.58)
+      }
+      if (dataUrl.length > 650000) {
+        reject(new Error('post-image-too-large'))
+        return
+      }
+      resolve(dataUrl)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('image-invalid'))
+    }
+    image.src = objectUrl
+  })
+}
+
 function generateInviteCode() {
   const values = new Uint32Array(8)
   if (globalThis.crypto?.getRandomValues) {
@@ -280,8 +348,10 @@ function generateInviteCode() {
   return Array.from({ length: 8 }, () => INVITE_CODE_ALPHABET[Math.floor(Math.random() * INVITE_CODE_ALPHABET.length)]).join('')
 }
 
-function Avatar({ initials, color = 'orange', size = 'regular' }) {
-  return <span className={`avatar avatar-${color} avatar-${size}`}>{initials}</span>
+function Avatar({ initials, color = 'orange', size = 'regular', photoUrl = '' }) {
+  return <span className={`avatar avatar-${color} avatar-${size}${photoUrl ? ' has-photo' : ''}`}>
+    {photoUrl ? <img src={photoUrl} alt="" /> : initials}
+  </span>
 }
 
 function BrandMark() {
@@ -318,6 +388,11 @@ function SectionLabel({ children, action, onAction, secondaryAction, onSecondary
 function EventCard({ event, joined, onJoin, onOpen }) {
   const soldOut = event.spots === 0 && !joined
   const publisherRole = getEventPublisherRole(event)
+  const registeredCount = getRegisteredCount(event)
+  const attendees = getEventAttendees(event)
+  const visibleAttendees = attendees.slice(0, Math.min(3, registeredCount))
+  const placeholderCount = Math.max(0, Math.min(3, registeredCount) - visibleAttendees.length)
+  const remainingCount = Math.max(0, registeredCount - Math.min(3, registeredCount))
 
   return (
     <article className={`event-card accent-${event.accent}`} onClick={() => onOpen(event)} onKeyDown={(keyboardEvent) => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') onOpen(event) }} role="button" tabIndex="0">
@@ -335,9 +410,13 @@ function EventCard({ event, joined, onJoin, onOpen }) {
         <div className="event-meta"><Clock3 size={14} /> {event.time}<span className="meta-separator">·</span>{event.level}</div>
         <div className="event-meta"><MapPin size={14} /> {event.venue}</div>
         <div className="event-bottom">
-          <div className="attendee-stack">
-            {initialMembers.slice(0, 3).map((member) => <Avatar key={member.name} initials={member.initials} color={member.color} size="small" />)}
-            <span className="attendee-count">+{event.total - event.spots - 3}</span>
+          <div className="attendee-summary" aria-label={`已报名 ${registeredCount} 人`}>
+            <div className="attendee-stack">
+              {visibleAttendees.map((attendee, index) => <span className="attendee-avatar" key={attendee.uid || `${attendee.name}-${index}`} title={attendee.name}><Avatar initials={attendee.initials || attendee.name?.slice(0, 1) || '?'} color={attendee.color || 'green'} photoUrl={attendee.avatarUrl} size="small" /></span>)}
+              {Array.from({ length: placeholderCount }, (_, index) => <span className="attendee-avatar is-placeholder" key={`placeholder-${index}`} aria-hidden="true"><Avatar initials="·" color="green" size="small" /></span>)}
+              {remainingCount > 0 && <span className="attendee-count">+{remainingCount}</span>}
+            </div>
+            <span className="attendee-total">{registeredCount > 0 ? `已报名 ${registeredCount} 人` : '暂无报名'}</span>
           </div>
           <div className="event-price"><small>场地费</small><strong>¥ {event.price}</strong></div>
           <button className={`join-button ${joined ? 'is-joined' : ''}`} onClick={(clickEvent) => { clickEvent.stopPropagation(); onJoin(event) }} disabled={soldOut}>
@@ -351,7 +430,8 @@ function EventCard({ event, joined, onJoin, onOpen }) {
 
 function EventDetailModal({ event, joined, members, onClose, onJoin, onCopyAddress }) {
   if (!event) return null
-  const registeredCount = event.total - event.spots
+  const registeredCount = getRegisteredCount(event)
+  const attendees = getEventAttendees(event)
   const cancelled = isEventCancelled(event)
   const soldOut = !cancelled && event.spots === 0 && !joined
   const publisherRole = getEventPublisherRole(event)
@@ -372,7 +452,7 @@ function EventDetailModal({ event, joined, members, onClose, onJoin, onCopyAddre
           <div><MapPin size={16} /><span><strong>{event.venue}</strong><small>{event.address}</small></span><button className="icon-button" aria-label="复制场地地址" onClick={() => onCopyAddress(event.address)}><Copy size={15} /></button></div>
         </div>
         <div className="event-capacity"><div><span>报名进度</span><strong>{registeredCount} / {event.total} 人</strong></div><div className="capacity-track"><span style={{ width: `${Math.min(100, (registeredCount / event.total) * 100)}%` }} /></div><small>{cancelled ? '该场次已取消发布' : event.spots > 0 ? `还剩 ${event.spots} 个位置` : '当前已满员'}</small></div>
-        <div className="event-attendees"><div className="detail-heading"><strong>已报名球友</strong><span>{registeredCount} 人</span></div><div className="event-attendee-list">{members.slice(0, Math.min(registeredCount, 5)).map((member) => <div key={member.name}><Avatar initials={member.initials} color={member.color} size="small" /><span>{member.name}</span></div>)}{registeredCount > 5 && <span className="attendee-more">+{registeredCount - 5}</span>}</div></div>
+        <div className="event-attendees"><div className="detail-heading"><strong>已报名球友</strong><span>{registeredCount} 人</span></div><div className="event-attendee-list">{attendees.slice(0, Math.min(registeredCount, 5)).map((attendee, index) => <div key={attendee.uid || `${attendee.name}-${index}`} title={attendee.name}><Avatar initials={attendee.initials || attendee.name?.slice(0, 1) || '?'} color={attendee.color || 'green'} photoUrl={attendee.avatarUrl} size="small" /><span>{attendee.name}</span></div>)}{registeredCount > attendees.length && <span className="attendee-more">+{registeredCount - attendees.length}</span>}</div></div>
         <button className={`primary-button full-width detail-join-button ${joined ? 'is-joined' : ''}`} onClick={() => onJoin(event)} disabled={cancelled || soldOut}>{joined ? <><Check size={16} /> 已在报名名单</> : cancelled ? '已取消发布' : soldOut ? '这场已满员' : <>立即报名 · ¥ {event.price} <ArrowUpRight size={16} /></>}</button>
       </section>
     </div>
@@ -480,7 +560,7 @@ function SearchModal({ events, members, communityAccess, onClose, onSelect }) {
             <CalendarDays size={17} /><span><strong>{event.title}</strong><small>{event.time} · {event.venue}</small></span><ArrowUpRight size={15} />
           </button>)}
           {memberResults.map((member) => { const roleKey = getRoleKey(member, communityAccess); return <button key={member.uid || member.name} className="search-result" onClick={() => onSelect('成员')}>
-            <Avatar initials={member.initials} color={member.color} size="small" /><span><strong>{getMemberName(member)}</strong><small>{ROLE_LABELS[roleKey]}</small></span><ArrowUpRight size={15} />
+            <Avatar initials={member.initials} color={member.color} photoUrl={member.avatarUrl} size="small" /><span><strong>{getMemberName(member)}</strong><small>{ROLE_LABELS[roleKey]}</small></span><ArrowUpRight size={15} />
           </button> })}
           {eventResults.length + memberResults.length === 0 && <div className="search-empty">没有找到匹配结果。</div>}
         </div>}
@@ -747,7 +827,7 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
         <div className="conversation-filters" role="tablist" aria-label="消息筛选">{['全部', '未读', '置顶'].map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)} role="tab" aria-selected={filter === item}>{item}</button>)}</div>
         <div className="conversation-items">
           {filteredConversations.map((conversation) => <button key={conversation.id} className={`conversation ${activeConversationId === conversation.id ? 'active' : ''}`} onClick={() => selectConversation(conversation)}>
-            <span className="conversation-avatar-wrap"><Avatar initials={conversation.initials} color={conversation.color} /><i className={conversation.online ? 'online-dot' : 'offline-dot'} /></span>
+            <span className="conversation-avatar-wrap"><Avatar initials={conversation.initials} color={conversation.color} photoUrl={conversation.member?.avatarUrl} /><i className={conversation.online ? 'online-dot' : 'offline-dot'} /></span>
             <div><strong>{conversation.title}{conversation.pinned && <Pin size={11} />}</strong><span>{conversation.preview}</span></div>
             <span className="conversation-meta">{conversation.time}{conversation.unread > 0 && <em>{conversation.unread}</em>}</span>
           </button>)}
@@ -758,7 +838,7 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
         <header className="chat-header">
           <button className="mobile-conversation-toggle" aria-label="切换会话" onClick={() => setShowConversations((current) => !current)}><MessageCircle size={16} /><ChevronDown size={14} /></button>
           {focusMember && <button className="icon-button chat-back-button" aria-label="返回全员消息" title="返回全员消息" onClick={onBackToCommunity}><ArrowLeft size={18} /></button>}
-          <Avatar initials={focusMember?.initials || 'A&T'} color={focusMember?.color || 'green'} />
+          <Avatar initials={focusMember?.initials || 'A&T'} color={focusMember?.color || 'green'} photoUrl={focusMember?.avatarUrl} />
           <div className="chat-identity"><strong>{focusMember ? focusMember.name : `${COMMUNITY_NAME} · 全员`}</strong><span><i className={focusMember && !onlineUids.has(focusMember.uid) ? 'offline-dot' : 'online-dot'} /> {focusMember ? `${onlineUids.has(focusMember.uid) ? '在线' : '离线'} · ${focusMember.role}` : `${onlineCount} 人在线`}</span></div>
           <div className="chat-tools">
             <button className={`icon-button ${pinned ? 'is-active' : ''}`} aria-label={pinned ? '取消置顶' : '置顶会话'} title={pinned ? '取消置顶' : '置顶会话'} onClick={() => setPinned((current) => !current)}><Pin size={17} /></button>
@@ -769,9 +849,9 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
         </header>
         <div className="message-stream">
           <div className="chat-date"><span>{focusMember ? `与 ${focusMember.name} 的新对话` : '今天 · 8 月 22 日'}</span><i><CheckCheck size={12} /> 已同步</i></div>
-          {focusMember && chatMessages.length === 0 && <div className="direct-empty"><Avatar initials={focusMember.initials} color={focusMember.color} size="large" /><strong>和 {focusMember.name} 打个招呼</strong><span>可以约球、交流装备，或者确认下一场活动。</span></div>}
+          {focusMember && chatMessages.length === 0 && <div className="direct-empty"><Avatar initials={focusMember.initials} color={focusMember.color} photoUrl={focusMember.avatarUrl} size="large" /><strong>和 {focusMember.name} 打个招呼</strong><span>可以约球、交流装备，或者确认下一场活动。</span></div>}
           {chatMessages.map((message) => <article className={`message-row ${message.mine ? 'mine' : ''}`} key={message.id}>
-            {!message.mine && <Avatar initials={message.initials} color={message.color} size="small" />}
+            {!message.mine && <Avatar initials={message.initials} color={message.color} photoUrl={message.avatarUrl} size="small" />}
             <div className="message-bubble"><div><strong>{message.author}</strong><time>{message.time}</time></div><p>{message.text}</p></div>
           </article>)}
         </div>
@@ -796,11 +876,12 @@ function FeedPost({ post, commentsOpen, onToggleLike, onToggleComments, onAddCom
   return (
     <article className="feed-post">
       <div className="feed-heading">
-        <Avatar initials={post.initials} color={post.color} />
+        <Avatar initials={post.initials} color={post.color} photoUrl={post.avatarUrl} />
         <div><strong>{post.author}</strong><span>{post.time} · {post.label}</span></div>
         <button className="mini-more" aria-label={`${post.author} 的动态更多操作`}><Ellipsis size={17} /></button>
       </div>
-      <p>{post.text}</p>
+      {post.text && <p>{post.text}</p>}
+      {post.imageUrl && <img className="feed-post-image" src={post.imageUrl} alt={post.imageAlt || '动态配图'} loading="lazy" />}
       <div className="feed-actions">
         <button className={post.liked ? 'is-liked' : ''} onClick={() => onToggleLike(post.id)} aria-pressed={post.liked}><Heart size={14} fill={post.liked ? 'currentColor' : 'none'} /> {post.likes}</button>
         <button onClick={() => onToggleComments(post.id)} aria-expanded={commentsOpen}><MessageCircle size={14} /> {post.comments.length ? `${post.comments.length} 条回应` : '回应'}</button>
@@ -808,12 +889,93 @@ function FeedPost({ post, commentsOpen, onToggleLike, onToggleComments, onAddCom
       </div>
       {commentsOpen && <div className="feed-comments">
         {post.comments.length > 0 && <div className="comment-list">{post.comments.map((comment) => <article className="comment" key={comment.id}>
-          <Avatar initials={comment.initials} color={comment.color} size="small" />
+          <Avatar initials={comment.initials} color={comment.color} photoUrl={comment.avatarUrl} size="small" />
           <div><div><strong>{comment.author}</strong><time>{comment.time}</time></div><p>{comment.text}</p></div>
         </article>)}</div>}
         <form className="comment-composer" onSubmit={submit}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="写下你的回应" aria-label="评论内容" /><button className="send-button" type="submit" aria-label="发送评论"><Send size={15} /></button></form>
       </div>}
     </article>
+  )
+}
+
+function PostComposerModal({ onClose, onSubmit }) {
+  const [imageFile, setImageFile] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    if (!imageFile) {
+      setPreviewUrl('')
+      return undefined
+    }
+    const nextPreviewUrl = URL.createObjectURL(imageFile)
+    setPreviewUrl(nextPreviewUrl)
+    return () => URL.revokeObjectURL(nextPreviewUrl)
+  }, [imageFile])
+
+  function chooseImage(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('请选择 JPG、PNG、WebP 等图片文件。')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('图片不能超过 5MB。')
+      return
+    }
+    setError('')
+    setImageFile(file)
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    const text = String(form.get('text') || '').trim()
+    if (!text && !imageFile) {
+      setError('写点内容或添加一张图片再发布吧。')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await onSubmit({
+        label: String(form.get('label') || '场边闲聊'),
+        text,
+        imageFile,
+      })
+    } catch (submitError) {
+      setError(submitError.message || '动态发布失败，请稍后再试。')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal post-composer-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="modal-close" aria-label="关闭" onClick={onClose} disabled={submitting}><X size={18} /></button>
+        <div className="modal-icon"><MessageCircle size={22} /></div>
+        <span className="eyebrow">COMMUNITY UPDATE</span>
+        <h2>发布一条动态</h2>
+        <p>分享约球、装备、复盘，或者给熟悉的球友留个消息。</p>
+        <form onSubmit={submit}>
+          <label>动态类型<select name="label" defaultValue="场边闲聊"><option>场边闲聊</option><option>约球</option><option>装备分享</option><option>赛后复盘</option></select></label>
+          <label>想说的话<textarea name="text" rows="5" autoFocus placeholder="例如：周日想加练一小时，有人一起吗？" /></label>
+          {previewUrl && <div className="post-image-preview"><img src={previewUrl} alt="待发布的图片预览" /><button type="button" aria-label="移除图片" title="移除图片" onClick={() => setImageFile(null)} disabled={submitting}><X size={16} /></button></div>}
+          <div className="post-image-tools">
+            <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" onChange={chooseImage} />
+            <button className="quiet-button post-image-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={submitting}><ImagePlus size={16} /> {imageFile ? '更换图片' : '添加图片'}</button>
+            <span>单张图片 · 最大 5MB</span>
+          </div>
+          {error && <div className="post-composer-error" role="alert">{error}</div>}
+          <button className="primary-button full-width" type="submit" disabled={submitting}>{submitting ? <><LoaderCircle className="spin" size={16} /> 正在发布…</> : <>发布动态 <ArrowUpRight size={16} /></>}</button>
+        </form>
+      </div>
+    </div>
   )
 }
 
@@ -839,7 +1001,7 @@ function MembersView({ members, currentUser, communityAccess, onInvite, onContac
         {filteredMembers.map((member, index) => {
           const isSelf = member.uid && currentUser.uid ? member.uid === currentUser.uid : getMemberName(member) === getMemberName(currentUser)
           const roleKey = getRoleKey(member, communityAccess)
-          return <article className={`directory-member ${isSelf ? 'is-self' : ''}`} key={`${getMemberName(member)}-${index}`}><Avatar initials={member.initials} color={member.color} size="large" /><div><h2>{getMemberName(member)}{isSelf && <small className="self-badge">你</small>}</h2><div className="member-role-line"><RoleLabel roleKey={roleKey} /></div>{member.bio && <p className="member-bio">{member.bio}</p>}</div>{!isSelf && <button className="icon-button" aria-label={`联系 ${getMemberName(member)}`} onClick={() => onContact(member)}><MessageCircle size={17} /></button>}</article>
+          return <article className={`directory-member ${isSelf ? 'is-self' : ''}`} key={`${getMemberName(member)}-${index}`}><Avatar initials={member.initials} color={member.color} photoUrl={member.avatarUrl} size="large" /><div><h2>{getMemberName(member)}{isSelf && <small className="self-badge">你</small>}</h2><div className="member-role-line"><RoleLabel roleKey={roleKey} /></div>{member.bio && <p className="member-bio">{member.bio}</p>}</div>{!isSelf && <button className="icon-button" aria-label={`联系 ${getMemberName(member)}`} onClick={() => onContact(member)}><MessageCircle size={17} /></button>}</article>
         })}
       </div>
       {filteredMembers.length === 0 && <div className="directory-empty">没有找到符合条件的球友。</div>}
@@ -870,7 +1032,7 @@ function AdminUserDataModal({ users, events, communityAccess, loading, onClose }
             const joinedEvents = (user.joinedIds || []).map((id) => events.find((event) => event.id === id)?.title || `场次 ${id}`)
             const scheduleItems = user.scheduleItems || []
             return <article className="admin-data-item" key={user.uid}>
-              <div className="admin-data-heading"><Avatar initials={member.name?.slice(0, 1) || '?'} color={member.color || 'green'} /><div><strong>{getMemberName(member)}</strong><span>{member.email || '未填写邮箱'}</span><RoleLabel roleKey={getRoleKey(member, communityAccess)} compact /></div></div>
+              <div className="admin-data-heading"><Avatar initials={member.name?.slice(0, 1) || '?'} color={member.color || 'green'} photoUrl={member.avatarUrl} /><div><strong>{getMemberName(member)}</strong><span>{member.email || '未填写邮箱'}</span><RoleLabel roleKey={getRoleKey(member, communityAccess)} compact /></div></div>
               <div className="admin-data-stats"><div><small>已报名</small><strong>{joinedEvents.length} 场</strong></div><div><small>个人日程</small><strong>{scheduleItems.length} 条</strong></div><div><small>消息状态</small><strong>{user.messageReadState?.community ? '已读' : '有未读'}</strong></div></div>
               {member.invitedByName && <p><b>邀请管理员：</b>{member.invitedByName}</p>}
               {joinedEvents.length > 0 && <p><b>报名场次：</b>{joinedEvents.join('、')}</p>}
@@ -901,7 +1063,7 @@ function AdminManagementModal({ members, communityAccess, onToggleAdmin, onClose
             const enabled = adminUids.includes(member.uid)
             const isOwnerMember = member.uid === ownerUid
             return <article className="admin-management-item" key={member.uid}>
-              <Avatar initials={member.initials} color={member.color} />
+              <Avatar initials={member.initials} color={member.color} photoUrl={member.avatarUrl} />
               <div><strong>{getMemberName(member)}</strong><span>{member.email || '未填写邮箱'}</span></div>
               {isOwnerMember ? <RoleLabel roleKey="owner" /> : <button className={`admin-toggle ${enabled ? 'is-enabled' : ''}`} onClick={() => onToggleAdmin(member, !enabled)}>{enabled ? '取消 administrator' : '设为 administrator'}</button>}
             </article>
@@ -919,23 +1081,58 @@ function ProfileModal({ profileMember, currentUser, onClose, onSave, onStartMess
     : getMemberName(profileMember) === getMemberName(currentUser)
   const [nickname, setNickname] = useState(getMemberName(profileMember))
   const [bio, setBio] = useState(profileMember.bio || '')
+  const [avatarUrl, setAvatarUrl] = useState(profileMember.avatarUrl || '')
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarError, setAvatarError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef(null)
   const roleKey = profileMember.roleKey || (isSelf ? currentUser.roleKey : 'member')
 
-  function submit(event) {
+  function handleAvatarChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('请选择图片文件。')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('图片不能超过 5MB。')
+      return
+    }
+    setAvatarError('')
+    setAvatarFile(file)
+    setAvatarUrl(URL.createObjectURL(file))
+  }
+
+  async function submit(event) {
     event.preventDefault()
-    onSave({ nickname: nickname.trim(), bio: bio.trim() })
+    setSaving(true)
+    try {
+      await onSave({ nickname: nickname.trim(), bio: bio.trim(), avatarFile })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="modal profile-modal" onMouseDown={(event) => event.stopPropagation()} aria-label="个人名片">
         <button className="modal-close" aria-label="关闭" onClick={onClose}><X size={18} /></button>
-        <Avatar initials={(nickname || profileMember.initials || '?').slice(0, 1)} color={profileMember.color} size="large" />
+        {isSelf ? <div className="profile-avatar-editor">
+          <Avatar initials={(nickname || profileMember.initials || '?').slice(0, 1)} color={profileMember.color} photoUrl={avatarUrl} size="large" />
+          <button className="avatar-upload-button" type="button" onClick={() => fileInputRef.current?.click()} aria-label="上传头像">
+            <Camera size={15} />
+            <span>更换头像</span>
+          </button>
+          <input ref={fileInputRef} className="avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleAvatarChange} />
+        </div> : <Avatar initials={profileMember.initials} color={profileMember.color} photoUrl={profileMember.avatarUrl} size="large" />}
         <span className="eyebrow"><RoleLabel roleKey={roleKey} /> · COMMUNITY PROFILE</span>
         {isSelf ? <form className="profile-edit-form" onSubmit={submit}>
           <label>昵称<input value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={30} autoFocus /></label>
           <label>个人简介<textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={160} rows="3" placeholder="介绍一下你自己，方便球友认识你。" /></label>
-          <button className="primary-button full-width" type="submit" disabled={!nickname.trim()}>保存名片 <Check size={16} /></button>
+          {avatarError && <div className="avatar-upload-error" role="alert">{avatarError}</div>}
+          <button className="primary-button full-width" type="submit" disabled={!nickname.trim() || saving}>{saving ? '正在保存…' : '保存名片'} {!saving && <Check size={16} />}</button>
           <button className="quiet-button full-width logout-button" type="button" onClick={onLogout}><LogOut size={16} /> 退出登录</button>
         </form> : <>
           <h2>{getMemberName(profileMember)}</h2>
@@ -1098,6 +1295,7 @@ function App() {
         color: 'green',
         email: registeredMember.email,
         uid: registeredMember.uid,
+        avatarUrl: registeredMember.avatarUrl || '',
       }
       const roleKey = isOwner ? 'owner' : getRoleKey(merged, communityAccess)
       return { ...merged, name: getMemberName(merged), nickname: getMemberName(merged), roleKey, role: ROLE_LABELS[roleKey] }
@@ -1573,7 +1771,22 @@ function App() {
     if (decrementSpots || syncSpots !== undefined) {
       setEvents((current) => current.map((item) => {
         if (item.id !== event.id) return item
-        return { ...item, spots: syncSpots === undefined ? Math.max(0, item.spots - 1) : syncSpots }
+        const attendee = {
+          uid: currentUser.uid || currentUser.email || `local-${getMemberName(currentUser)}`,
+          name: getMemberName(currentUser),
+          initials: currentUser.initials || getMemberName(currentUser).slice(0, 1),
+          color: currentUser.color || 'green',
+          avatarUrl: currentUser.avatarUrl || '',
+        }
+        const attendees = getEventAttendees(item)
+        const nextAttendees = attendees.some((entry) => entry.uid === attendee.uid)
+          ? attendees
+          : [...attendees, attendee]
+        return {
+          ...item,
+          spots: syncSpots === undefined ? Math.max(0, item.spots - 1) : syncSpots,
+          attendees: nextAttendees,
+        }
       }))
     }
     setPendingJoinEvent(null)
@@ -1712,7 +1925,15 @@ function App() {
       setCancellationRequests((current) => current.map((item) => item.id === request.id ? { ...item, status: 'approved', reviewedAt: '刚刚' } : item))
       setJoinedIds((current) => current.filter((id) => id !== request.eventId))
       setScheduleItems((current) => current.filter((item) => item.eventId !== request.eventId))
-      setEvents((current) => current.map((item) => item.id === request.eventId ? { ...item, spots: Math.min(item.total, item.spots + 1) } : item))
+      setEvents((current) => current.map((item) => item.id === request.eventId
+        ? {
+          ...item,
+          spots: Math.min(item.total, item.spots + 1),
+          attendees: Array.isArray(item.attendees)
+            ? item.attendees.filter((attendee) => String(attendee?.uid) !== String(request.uid))
+            : item.attendees,
+        }
+        : item))
       flash(`已批准「${request.eventTitle}」的取消报名申请。`)
       return
     }
@@ -1820,18 +2041,21 @@ function App() {
     switchNav('消息')
   }
 
-  async function handleSaveProfile({ nickname, bio }) {
+  async function handleSaveProfile({ nickname, bio, avatarFile }) {
     const previousName = currentUser.name
-    const nextMember = {
-      ...currentUser,
-      initials: nickname.slice(0, 1).toUpperCase(),
-      name: nickname,
-      nickname,
-      bio,
-      role: ROLE_LABELS[currentUser.roleKey],
-      roleKey: currentUser.roleKey,
-    }
     try {
+      let avatarUrl = currentUser.avatarUrl || ''
+      if (avatarFile) avatarUrl = await uploadCommunityAvatar(firebaseUser, avatarFile)
+      const nextMember = {
+        ...currentUser,
+        initials: nickname.slice(0, 1).toUpperCase(),
+        name: nickname,
+        nickname,
+        bio,
+        avatarUrl,
+        role: ROLE_LABELS[currentUser.roleKey],
+        roleKey: currentUser.roleKey,
+      }
       if (firebaseUser) await updateFirebaseProfile(firebaseUser, nickname)
       await saveCommunityProfile(currentUser.uid || firebaseUser?.uid, nextMember)
       setMembers((current) => current.map((member) => {
@@ -1859,21 +2083,14 @@ function App() {
     }
   }
 
-  async function handleCreatePost(event) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const text = String(form.get('text') || '').trim()
-    const label = String(form.get('label') || '场边闲聊')
-    if (!text) {
-      flash('写点内容再发布吧。')
-      return
-    }
+  async function handleCreatePost({ label, text, imageFile }) {
     const post = {
       id: Date.now(),
       authorUid: firebaseUser?.uid || 'local-demo',
       author: '你',
       initials: '我',
       color: 'green',
+      avatarUrl: currentUser.avatarUrl || '',
       time: '刚刚',
       label,
       text,
@@ -1883,6 +2100,9 @@ function App() {
       createdAt: Date.now(),
     }
     try {
+      if (imageFile) {
+        post.imageUrl = await compressPostImage(imageFile)
+      }
       const savedPost = isFirebaseConfigured && firebaseUser ? await createCommunityPost(post) : post
       setPosts((current) => [savedPost, ...current])
     } catch (error) {
@@ -1915,7 +2135,7 @@ function App() {
     const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
     const post = posts.find((item) => item.id === postId)
     if (!post) return
-    const comment = { id: Date.now(), author: '你', initials: '我', color: 'green', time, text, authorUid: firebaseUser?.uid || 'local-demo' }
+    const comment = { id: Date.now(), author: '你', initials: '我', color: 'green', avatarUrl: currentUser.avatarUrl || '', time, text, authorUid: firebaseUser?.uid || 'local-demo' }
     const nextComments = [...post.comments, comment]
     setPosts((current) => current.map((item) => item.id === postId ? {
       ...item,
@@ -2164,7 +2384,7 @@ function App() {
           {isAdmin && <button onClick={() => setShowPublish(true)} className="admin-action"><Plus size={17} /><span>发布新场次</span></button>}
           <button className="sidebar-link" onClick={() => setShowSettings(true)}><Settings2 size={17} /><span>社群设置</span></button>
           <button type="button" className="admin-profile profile-trigger" onClick={() => { setProfileMember(currentUser); setShowProfile(true) }} aria-label="编辑我的名片">
-            <Avatar initials={currentUser.initials} color={currentUser.color} />
+          <Avatar initials={currentUser.initials} color={currentUser.color} photoUrl={currentUser.avatarUrl} />
             <div><strong>{currentUser.name}</strong><span><RoleLabel roleKey={currentUser.roleKey} compact /></span></div>
             <Ellipsis size={18} />
           </button>
@@ -2197,7 +2417,7 @@ function App() {
             </div>
             <div className="hero-art" aria-label="排球场地视觉">
               <div className="court-lines"><i /><i /><i /><i /></div>
-              <div className="volley-ball"><span /><span /><span /></div>
+              <img className="volley-ball" src={HERO_BALL_IMAGE} alt="米卡萨排球" />
               <div className="hero-stamp"><Sparkles size={14} /><span>ambition<br />&amp;together</span></div>
               <div className="hero-note">NEXT UP<br /><strong>19:30</strong></div>
             </div>
@@ -2225,7 +2445,7 @@ function App() {
             </div>
             <div className="members-panel">
               <SectionLabel action="管理成员" onAction={() => switchNav('成员')}>活跃球友</SectionLabel>
-              <div className="member-list">{members.map((member) => { const roleKey = getRoleKey(member, communityAccess); const online = Boolean(member.uid && onlineUids.has(member.uid)); return <button className="member-row member-row-button" key={member.uid || member.name} onClick={() => handleContactMember(member)}><Avatar initials={member.initials} color={member.color} /><div className="member-row-copy"><strong>{getMemberName(member)}</strong><span><RoleLabel roleKey={roleKey} compact /></span></div><span className={online ? 'online-dot' : 'offline-dot'} /></button> })}</div>
+              <div className="member-list">{members.map((member) => { const roleKey = getRoleKey(member, communityAccess); const online = Boolean(member.uid && onlineUids.has(member.uid)); return <button className="member-row member-row-button" key={member.uid || member.name} onClick={() => handleContactMember(member)}><Avatar initials={member.initials} color={member.color} photoUrl={member.avatarUrl} /><div className="member-row-copy"><strong>{getMemberName(member)}</strong><span><RoleLabel roleKey={roleKey} compact /></span></div><span className={online ? 'online-dot' : 'offline-dot'} /></button> })}</div>
             </div>
           </section>
           </>}
@@ -2269,15 +2489,12 @@ function App() {
         <button className="primary-button full-width" onClick={() => setShowWelcomeMail(false)}>进入社群 <ArrowUpRight size={16} /></button>
       </div></div>}
 
-      {showPublish && <div className="modal-backdrop" onMouseDown={() => setShowPublish(false)}><div className="modal publish-modal" onMouseDown={(event) => event.stopPropagation()}>
+      {showPublish && <div className="modal-backdrop publish-modal-backdrop" onMouseDown={() => setShowPublish(false)}><div className="modal publish-modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" aria-label="关闭" onClick={() => setShowPublish(false)}><X size={18} /></button><div className="modal-icon yellow-icon"><Plus size={22} /></div><span className="eyebrow">NEW VOLLEY SESSION</span><h2>发布新场次</h2><p>把下一场球的细节告诉社群成员。</p>
         <form onSubmit={handlePublishSubmit} className="publish-form"><label>场次名称<input name="title" defaultValue="周末夜场 · 新局开打" /></label><div className="form-row"><label>日期<input name="date" defaultValue="09.07" /></label><label>时间<input name="time" defaultValue="19:30 — 22:00" /></label></div><div className="form-row"><label>人均费用<input name="price" type="number" defaultValue="38" /></label><label>人数上限<input name="total" type="number" defaultValue="12" /></label></div><label>场馆<input name="venue" defaultValue="深圳湾体育中心 · 2 号馆" /></label><label>水平<select name="level" defaultValue="中级友好"><option>新手友好</option><option>中级友好</option><option>进阶局</option></select></label><button className="primary-button full-width" type="submit">发布场次 <ArrowUpRight size={16} /></button></form>
       </div></div>}
 
-      {showPostComposer && <div className="modal-backdrop" onMouseDown={() => setShowPostComposer(false)}><div className="modal post-composer-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="modal-close" aria-label="关闭" onClick={() => setShowPostComposer(false)}><X size={18} /></button><div className="modal-icon"><MessageCircle size={22} /></div><span className="eyebrow">COMMUNITY UPDATE</span><h2>发布一条动态</h2><p>分享约球、装备、复盘，或者给熟悉的球友留个消息。</p>
-        <form onSubmit={handleCreatePost}><label>动态类型<select name="label" defaultValue="场边闲聊"><option>场边闲聊</option><option>约球</option><option>装备分享</option><option>赛后复盘</option></select></label><label>想说的话<textarea name="text" rows="5" autoFocus placeholder="例如：周日想加练一小时，有人一起吗？" /></label><button className="primary-button full-width" type="submit">发布动态 <ArrowUpRight size={16} /></button></form>
-      </div></div>}
+      {showPostComposer && <PostComposerModal onClose={() => setShowPostComposer(false)} onSubmit={handleCreatePost} />}
 
       {showScheduleComposer && <div className="modal-backdrop" onMouseDown={() => setShowScheduleComposer(false)}><div className="modal schedule-composer-modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" aria-label="关闭" onClick={() => setShowScheduleComposer(false)}><X size={18} /></button><div className="modal-icon"><CalendarDays size={22} /></div><span className="eyebrow">PERSONAL PLANS</span><h2>新建个人日程</h2><p>记录训练、约球和那些让这周更顺手的小事。</p>

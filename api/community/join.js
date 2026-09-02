@@ -1,4 +1,5 @@
 import {
+  createEventAttendee,
   createScheduleItem,
   getFirebaseServices,
   handleApiError,
@@ -28,15 +29,18 @@ export default async function handler(request, response) {
     const { db } = getFirebaseServices()
     const communityRef = db.doc(`communities/${COMMUNITY_ID}`)
     const userRef = db.doc(`communities/${COMMUNITY_ID}/users/${user.uid}`)
+    const profileRef = db.doc(`communities/${COMMUNITY_ID}/profiles/${user.uid}`)
     const result = await db.runTransaction(async (transaction) => {
-      const [communitySnapshot, userSnapshot] = await Promise.all([
+      const [communitySnapshot, userSnapshot, profileSnapshot] = await Promise.all([
         transaction.get(communityRef),
         transaction.get(userRef),
+        transaction.get(profileRef),
       ])
       if (!communitySnapshot.exists) throw new Error('community-not-found')
 
       const community = communitySnapshot.data()
       const userData = userSnapshot.exists ? userSnapshot.data() : {}
+      const profileData = profileSnapshot.exists ? profileSnapshot.data() : {}
       const events = Array.isArray(community.events) ? community.events : []
       const event = events.find((item) => String(item.id) === String(eventId))
       if (!event) throw new Error('event-not-found')
@@ -54,7 +58,10 @@ export default async function handler(request, response) {
       }
       if (Number(event.spots) <= 0) throw new Error('event-sold-out')
 
-      const nextEvent = { ...event, spots: Math.max(0, Number(event.spots) - 1) }
+      const attendee = { ...createEventAttendee(user, userData, profileData), joinedAt: new Date().toISOString() }
+      const attendees = Array.isArray(event.attendees) ? event.attendees : []
+      const nextAttendees = attendees.some((item) => item?.uid === attendee.uid) ? attendees : [...attendees, attendee]
+      const nextEvent = { ...event, spots: Math.max(0, Number(event.spots) - 1), attendees: nextAttendees }
       transaction.update(communityRef, {
         events: events.map((item) => String(item.id) === String(event.id) ? nextEvent : item),
       })

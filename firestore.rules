@@ -91,8 +91,11 @@ service cloud.firestore {
         && request.resource.data.authorUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'authorUid', 'author', 'initials', 'color', 'time', 'label', 'text',
-          'likes', 'liked', 'comments', 'createdAt'
-        ]);
+          'likes', 'liked', 'comments', 'createdAt', 'imageUrl'
+        ])
+        && (!request.resource.data.keys().hasAny(['imageUrl'])
+          || (request.resource.data.imageUrl is string
+            && request.resource.data.imageUrl.size() <= 650000));
       allow update: if signedIn()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['likes', 'liked', 'comments']);
@@ -115,19 +118,22 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['nickname', 'bio', 'initials', 'color', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname', 'bio', 'initials', 'color', 'avatarUrl', 'updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.bio is string
         && request.resource.data.initials is string
-        && request.resource.data.color is string;
+        && request.resource.data.color is string
+        && (!request.resource.data.keys().hasAny(['avatarUrl'])
+          || request.resource.data.avatarUrl is string);
       allow update: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['nickname', 'bio', 'initials', 'color', 'updatedAt'])
+          .hasOnly(['nickname', 'bio', 'initials', 'color', 'avatarUrl', 'updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.bio is string
         && request.resource.data.initials is string
-        && request.resource.data.color is string;
+        && request.resource.data.color is string
+        && request.resource.data.avatarUrl is string;
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 

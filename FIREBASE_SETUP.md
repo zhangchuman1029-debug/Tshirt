@@ -31,14 +31,19 @@ Firebase Console → Firestore Database → Create database。创建完成后，
 
 - 社群公共数据：活动、成员
 - 社群互动子集合：全员消息、私聊、动态、取消报名审核
+- 社群动态图片：浏览器压缩为 JPEG 后直接保存到 Firestore；单张原始图片限制 5MB
 - 当前用户数据：已报名场次、个人日程、消息已读状态、通知
 - 公共个人名片：昵称、个人简介和头像展示信息；成员只能修改自己的名片
+
+头像不使用 Firebase Storage：浏览器会将图片压缩为最长边不超过 512px、约 180KB 以内的 JPEG，并直接保存到 Firestore 个人资料。单张原始图片限制为 5MB。
+
+社群动态图片也不使用 Firebase Storage：浏览器会将图片缩放并压缩，最终作为 `imageUrl` 保存到动态文档；压缩后的图片最多约 650KB，以避免超过 Firestore 单文档限制。
 
 ## 4. 设置所有者与管理员
 
 Owner UID/邮箱用于识别并允许 Owner 登录；真正的 Firestore 管理权限仍由 `communityAccess/at-club` 或 Firebase Custom Claim 保护。
 
-第一次部署时，建议给你的 Firebase 用户设置 `owner: true`。Owner UID/邮箱可以避免 Owner 被误判为未注册，但不能替代 Firestore 管理权限：
+第一次部署时，建议给你的 Firebase 用户设置 `owner: true`（或 `role: 'owner'`）。Owner UID/邮箱可以避免 Owner 被误判为未注册，但不能替代 Firestore 管理权限：
 
 ```js
 await getAuth().setCustomUserClaims('你的 Firebase 用户 UID', {
@@ -50,6 +55,8 @@ await getAuth().setCustomUserClaims('你的 Firebase 用户 UID', {
 设置后，让你的账号退出并重新登录一次。首次进入后，应用会初始化社群所有者记录。之后打开：
 
 `社群设置 → 设置管理员`
+
+请先发布本仓库最新的 `firestore.rules`。旧规则只允许带有 `owner: true` 的 Claim 初始化管理员名单；当前规则同时支持 `owner: true` 和 `role: 'owner'`。
 
 只有所有者能设置或取消管理员；管理员不能修改管理员名单。管理员可以发放一次性邀请码、查看成员数据和审核取消报名，但不能查看密码。Firestore 规则会阻止普通用户读取其他人的个人文档。
 

@@ -129,6 +129,25 @@ export function createScheduleItem(event) {
   }
 }
 
+export function createEventAttendee(user, userData = {}, profileData = {}) {
+  const registeredMember = userData.registeredMember || {}
+  const name = String(
+    profileData.nickname
+      || registeredMember.nickname
+      || registeredMember.name
+      || user.name
+      || user.email?.split('@')[0]
+      || '新成员',
+  ).trim() || '新成员'
+  return {
+    uid: user.uid,
+    name,
+    initials: String(profileData.initials || registeredMember.initials || name.slice(0, 1)).slice(0, 1).toUpperCase(),
+    color: String(profileData.color || registeredMember.color || 'green'),
+    avatarUrl: String(profileData.avatarUrl || registeredMember.avatarUrl || ''),
+  }
+}
+
 export async function finalizePaidOrder(outTradeNo, payment = {}) {
   const { db } = getFirebaseServices()
   const orderRef = db.doc(`communities/${COMMUNITY_ID}/paymentOrders/${outTradeNo}`)
@@ -144,14 +163,17 @@ export async function finalizePaidOrder(outTradeNo, payment = {}) {
 
     const communityRef = db.doc(`communities/${COMMUNITY_ID}`)
     const userRef = db.doc(`communities/${COMMUNITY_ID}/users/${order.uid}`)
-    const [communitySnapshot, userSnapshot] = await Promise.all([
+    const profileRef = db.doc(`communities/${COMMUNITY_ID}/profiles/${order.uid}`)
+    const [communitySnapshot, userSnapshot, profileSnapshot] = await Promise.all([
       transaction.get(communityRef),
       transaction.get(userRef),
+      transaction.get(profileRef),
     ])
     if (!communitySnapshot.exists) throw new Error('community-not-found')
 
     const community = communitySnapshot.data()
     const userData = userSnapshot.exists ? userSnapshot.data() : {}
+    const profileData = profileSnapshot.exists ? profileSnapshot.data() : {}
     const events = Array.isArray(community.events) ? community.events : []
     const event = events.find((item) => String(item.id) === String(order.eventId))
     const joinedIds = Array.isArray(userData.joinedIds) ? userData.joinedIds : []
@@ -187,7 +209,13 @@ export async function finalizePaidOrder(outTradeNo, payment = {}) {
       return { status: 'paid_but_unavailable', event: order.eventSnapshot || event }
     }
 
-    const nextEvent = { ...event, spots: Math.max(0, Number(event.spots) - 1) }
+    const attendee = {
+      ...createEventAttendee({ uid: order.uid, name: order.userName, email: order.userEmail }, userData, profileData),
+      joinedAt: new Date().toISOString(),
+    }
+    const attendees = Array.isArray(event.attendees) ? event.attendees : []
+    const nextAttendees = attendees.some((item) => item?.uid === attendee.uid) ? attendees : [...attendees, attendee]
+    const nextEvent = { ...event, spots: Math.max(0, Number(event.spots) - 1), attendees: nextAttendees }
     const nextEvents = events.map((item) => String(item.id) === String(event.id) ? nextEvent : item)
     const nextScheduleItems = scheduleItems.some((item) => String(item.eventId) === String(event.id))
       ? scheduleItems

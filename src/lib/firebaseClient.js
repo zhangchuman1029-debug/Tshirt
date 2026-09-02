@@ -99,6 +99,7 @@ export async function repairMemberProfile(user) {
     bio: String(registeredMember.bio || ''),
     initials: nickname.slice(0, 1).toUpperCase(),
     color: String(registeredMember.color || 'green'),
+    avatarUrl: String(registeredMember.avatarUrl || ''),
     updatedAt: serverTimestamp(),
   }, { merge: true })
   return true
@@ -430,8 +431,62 @@ export function saveCommunityProfile(uid, profile) {
     bio: profile.bio,
     initials: profile.initials,
     color: profile.color,
+    avatarUrl: profile.avatarUrl || '',
     updatedAt: serverTimestamp(),
   }, { merge: true })
+}
+
+function readFileAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('avatar-read-failed'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function optimizeAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = async () => {
+      URL.revokeObjectURL(objectUrl)
+      try {
+        let maxDimension = 512
+        let quality = 0.78
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight))
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+          const context = canvas.getContext('2d')
+          if (!context) throw new Error('avatar-processing-failed')
+          context.drawImage(image, 0, 0, canvas.width, canvas.height)
+          const blob = await new Promise((blobResolve) => canvas.toBlob(blobResolve, 'image/jpeg', quality))
+          if (!blob) throw new Error('avatar-processing-failed')
+          if (blob.size <= 180 * 1024 || attempt === 4) {
+            resolve(blob)
+            return
+          }
+          maxDimension = Math.round(maxDimension * 0.82)
+          quality *= 0.86
+        }
+      } catch (error) {
+        reject(error)
+      }
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('avatar-invalid'))
+    }
+    image.src = objectUrl
+  })
+}
+
+export async function uploadCommunityAvatar(user, file) {
+  if (!file) return ''
+  const optimizedAvatar = await optimizeAvatar(file)
+  return readFileAsDataUrl(optimizedAvatar)
 }
 
 export function getFirebaseAuthErrorMessage(error) {
@@ -461,7 +516,8 @@ export function getFirebaseAuthErrorMessage(error) {
     'cancellation-not-found': '取消报名申请不存在。',
     'cancellation-already-reviewed': '这条取消报名申请已经处理过了。',
     'invalid-cancellation-review': '取消申请审核参数无效。',
-    'permission-denied': '权限被 Firestore 拒绝。请发布最新 firestore.rules，并让 Owner 退出后重新登录以刷新权限。',
+    'avatar-invalid': '请选择有效的图片文件。',
+    'avatar-processing-failed': '图片处理失败，请换一张图片再试。',
     'firebase-not-configured': 'Firebase 尚未配置，请先填写 .env.local。',
     'invalid-invite-code': '邀请码不正确，请向管理员确认后再试。',
     'invite-code-exists': '这个邀请码已经存在，请换一个新的。',

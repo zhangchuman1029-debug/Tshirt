@@ -57,7 +57,13 @@ export default async function handler(request, response) {
       const joinedIds = Array.isArray(userData.joinedIds) ? userData.joinedIds : []
       const scheduleItems = Array.isArray(userData.scheduleItems) ? userData.scheduleItems : []
       const nextEvents = events.map((item) => String(item.id) === String(event.id)
-        ? { ...item, spots: Math.min(Number(item.total), Number(item.spots) + 1) }
+        ? {
+          ...item,
+          spots: Math.min(Number(item.total), Number(item.spots) + 1),
+          attendees: Array.isArray(item.attendees)
+            ? item.attendees.filter((attendee) => String(attendee?.uid) !== String(cancellation.uid))
+            : item.attendees,
+        }
         : item)
 
       transaction.update(communityRef, { events: nextEvents })
