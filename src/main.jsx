@@ -66,12 +66,14 @@ import {
   saveCommunityData,
   saveCommunityProfile,
   saveUserData,
+  publishCommunityPresence,
   subscribeToAuth,
   subscribeToCommunityAccess,
   subscribeToCommunityCancellationRequests,
   subscribeToCommunityDirectMessages,
   subscribeToCommunityMessages,
   subscribeToCommunityPosts,
+  subscribeToCommunityPresence,
   subscribeToCommunity,
   subscribeToCommunityProfiles,
   subscribeToAllUserData,
@@ -109,6 +111,15 @@ function getMemberName(member) {
 
 function getEventPublisherRole(event) {
   return event?.publisherRole === 'member' ? 'member' : 'administrator'
+}
+
+function isPresenceOnline(lastSeen, now = Date.now()) {
+  const timestamp = typeof lastSeen?.toMillis === 'function'
+    ? lastSeen.toMillis()
+    : lastSeen instanceof Date
+      ? lastSeen.getTime()
+      : Number(lastSeen)
+  return Number.isFinite(timestamp) && now - timestamp <= 90000
 }
 
 function mergeCommunityProfiles(members, profiles) {
@@ -622,7 +633,7 @@ function PersonalScheduleView({ events, joinedIds, scheduleItems, onAdd, onToggl
   )
 }
 
-function MessagesView({ messages, directMessages, members, focusMember, messageReadState, onSend, onSelectMember, onBackToCommunity, onMarkRead }) {
+function MessagesView({ messages, directMessages, members, focusMember, messageReadState, onlineCount, onlineUids, onSend, onSelectMember, onBackToCommunity, onMarkRead }) {
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('全部')
@@ -644,7 +655,7 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
       preview: messages[messages.length - 1]?.text || '开始和社群成员聊天',
       time: messages[messages.length - 1]?.time || '现在',
       unread: messageReadState.community ? 0 : 3,
-      online: true,
+      online: onlineCount > 0,
       pinned: true,
     },
     ...members.slice(0, 5).map((member, index) => {
@@ -658,7 +669,7 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
         preview: memberMessages[memberMessages.length - 1]?.text || (index === 0 ? '好的，到时见。' : '还没有开始聊天'),
         time: memberMessages[memberMessages.length - 1]?.time || (index === 0 ? '昨天' : ''),
         unread: messageReadState.members?.[member.name] ? 0 : (index === 0 ? 1 : 0),
-        online: index < 3,
+        online: Boolean(member.uid && onlineUids.has(member.uid)),
         pinned: false,
       }
     }),
@@ -708,7 +719,7 @@ function MessagesView({ messages, directMessages, members, focusMember, messageR
           <button className="mobile-conversation-toggle" aria-label="切换会话" onClick={() => setShowConversations((current) => !current)}><MessageCircle size={16} /><ChevronDown size={14} /></button>
           {focusMember && <button className="icon-button chat-back-button" aria-label="返回全员消息" title="返回全员消息" onClick={onBackToCommunity}><ArrowLeft size={18} /></button>}
           <Avatar initials={focusMember?.initials || 'A&T'} color={focusMember?.color || 'green'} />
-          <div className="chat-identity"><strong>{focusMember ? focusMember.name : `${COMMUNITY_NAME} · 全员`}</strong><span><i className="online-dot" /> {focusMember ? `${focusMember.role} · 可联系` : '63 人在线'}</span></div>
+          <div className="chat-identity"><strong>{focusMember ? focusMember.name : `${COMMUNITY_NAME} · 全员`}</strong><span><i className={focusMember && !onlineUids.has(focusMember.uid) ? 'offline-dot' : 'online-dot'} /> {focusMember ? `${onlineUids.has(focusMember.uid) ? '在线' : '离线'} · ${focusMember.role}` : `${onlineCount} 人在线`}</span></div>
           <div className="chat-tools">
             <button className={`icon-button ${pinned ? 'is-active' : ''}`} aria-label={pinned ? '取消置顶' : '置顶会话'} title={pinned ? '取消置顶' : '置顶会话'} onClick={() => setPinned((current) => !current)}><Pin size={17} /></button>
             <button className={`icon-button ${muted ? 'is-active' : ''}`} aria-label={muted ? '打开通知' : '静音会话'} title={muted ? '打开通知' : '静音会话'} onClick={() => setMuted((current) => !current)}>{muted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>
@@ -1011,6 +1022,8 @@ function App() {
   const [inviteCode, setInviteCode] = useState(() => readStoredValue('inviteCode', generateInviteCode()))
   const [members, setMembers] = useState(() => readStoredValue('members', initialMembers))
   const [communityProfileCount, setCommunityProfileCount] = useState(() => isFirebaseConfigured ? 0 : null)
+  const [presence, setPresence] = useState([])
+  const [presenceClock, setPresenceClock] = useState(() => Date.now())
   const [registeredMember, setRegisteredMember] = useState(() => readStoredValue('registeredMember', null))
   const [messages, setMessages] = useState(() => readStoredValue('messages', starterMessages))
   const [directMessages, setDirectMessages] = useState(() => readStoredValue('directMessages', {}))
@@ -1024,6 +1037,12 @@ function App() {
   const joinedCount = joinedIds.length
   const spotsLeft = useMemo(() => events.reduce((sum, event) => sum + event.spots, 0), [events])
   const communityMemberCount = isFirebaseConfigured ? communityProfileCount : members.length + 123
+  const onlineUids = useMemo(() => new Set(
+    presence
+      .filter((item) => isPresenceOnline(item.lastSeen, presenceClock))
+      .map((item) => item.uid),
+  ), [presence, presenceClock])
+  const onlineCount = isFirebaseConfigured ? onlineUids.size : members.length
   const unreadMessageCount = (messageReadState.community ? 0 : 1) + (members[0] && !messageReadState.members?.[members[0].name] ? 1 : 0)
   const isOwner = !isFirebaseConfigured || isOwnerClaim
   const currentUser = useMemo(() => {
@@ -1095,6 +1114,37 @@ function App() {
     return subscribeToCommunityAccess((data) => {
       if (data) setCommunityAccess(data)
     }, () => setCloudError('管理员权限数据暂时无法同步。'))
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseUser) {
+      setPresence([])
+      return undefined
+    }
+    let active = true
+    const publish = () => {
+      publishCommunityPresence(firebaseUser.uid).catch(() => {})
+    }
+    publish()
+    const heartbeat = window.setInterval(publish, 30000)
+    const clock = window.setInterval(() => {
+      if (active) setPresenceClock(Date.now())
+    }, 30000)
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') publish()
+    }
+    document.addEventListener('visibilitychange', refreshOnVisible)
+    return () => {
+      active = false
+      window.clearInterval(heartbeat)
+      window.clearInterval(clock)
+      document.removeEventListener('visibilitychange', refreshOnVisible)
+    }
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!isFirebaseConfigured || !firebaseUser) return undefined
+    return subscribeToCommunityPresence(setPresence, () => setPresence([]))
   }, [firebaseUser])
 
   useEffect(() => {
@@ -1899,6 +1949,9 @@ function App() {
       } : item))
       flash(enabled ? `${member.name} 已设为管理员。` : `${member.name} 已取消管理员权限。`)
     } catch (error) {
+      if (error?.code === 'permission-denied') {
+        setCloudError('管理员名单保存被 Firestore 拒绝：请发布最新 firestore.rules，并确认当前 Owner 已重新登录以刷新 owner Claim。')
+      }
       flash(getFirebaseAuthErrorMessage(error))
     }
   }
@@ -2091,13 +2144,13 @@ function App() {
             </div>
             <div className="members-panel">
               <SectionLabel action="管理成员" onAction={() => switchNav('成员')}>活跃球友</SectionLabel>
-              <div className="member-list">{members.map((member) => { const roleKey = getRoleKey(member, communityAccess); return <button className="member-row member-row-button" key={member.uid || member.name} onClick={() => handleContactMember(member)}><Avatar initials={member.initials} color={member.color} /><div className="member-row-copy"><strong>{getMemberName(member)}</strong><span><RoleLabel roleKey={roleKey} compact /></span></div><span className="online-dot" /></button> })}</div>
+              <div className="member-list">{members.map((member) => { const roleKey = getRoleKey(member, communityAccess); const online = Boolean(member.uid && onlineUids.has(member.uid)); return <button className="member-row member-row-button" key={member.uid || member.name} onClick={() => handleContactMember(member)}><Avatar initials={member.initials} color={member.color} /><div className="member-row-copy"><strong>{getMemberName(member)}</strong><span><RoleLabel roleKey={roleKey} compact /></span></div><span className={online ? 'online-dot' : 'offline-dot'} /></button> })}</div>
             </div>
           </section>
           </>}
           {activeNav === '我的场次' && <MySessionsView events={events} joinedIds={joinedIds} paymentStatuses={paymentStatuses} cancellationRequests={cancellationRequests} onExplore={() => switchNav('首页')} onPayNow={handleStartPayment} onRequestCancel={handleRequestCancellation} />}
           {activeNav === '个人日程' && <PersonalScheduleView events={events} joinedIds={joinedIds} scheduleItems={scheduleItems} onAdd={() => setShowScheduleComposer(true)} onToggle={toggleScheduleItem} onDelete={deleteScheduleItem} />}
-          {activeNav === '消息' && <MessagesView messages={messages} directMessages={directMessages} members={members} focusMember={focusMember} messageReadState={messageReadState} onSend={handleSendMessage} onSelectMember={(member) => setFocusMember(member)} onBackToCommunity={() => setFocusMember(null)} onMarkRead={handleMarkMessageRead} />}
+          {activeNav === '消息' && <MessagesView messages={messages} directMessages={directMessages} members={members} focusMember={focusMember} messageReadState={messageReadState} onlineCount={onlineCount} onlineUids={onlineUids} onSend={handleSendMessage} onSelectMember={(member) => setFocusMember(member)} onBackToCommunity={() => setFocusMember(null)} onMarkRead={handleMarkMessageRead} />}
           {activeNav === '成员' && <MembersView members={members} currentUser={currentUser} communityAccess={communityAccess} onInvite={handleOpenInvite} onContact={handleContactMember} />}
         </div>
       </main>

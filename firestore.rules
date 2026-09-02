@@ -10,13 +10,17 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/communityAccess/at-club).data;
     }
 
-    function isOwner() {
+    function hasOwnerClaim() {
       return signedIn() && (
         request.auth.token.owner == true
         || request.auth.token.role == 'owner'
-        || (exists(/databases/$(database)/documents/communityAccess/at-club)
-          && request.auth.uid == access().ownerUid)
       );
+    }
+
+    function isOwner() {
+      return hasOwnerClaim()
+        || (exists(/databases/$(database)/documents/communityAccess/at-club)
+          && request.auth.uid == access().ownerUid);
     }
 
     function isAdmin() {
@@ -34,8 +38,7 @@ service cloud.firestore {
 
     match /communityAccess/at-club {
       allow read: if signedIn();
-      allow create: if request.auth != null
-        && request.auth.token.owner == true
+      allow create: if hasOwnerClaim()
         && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isOwner()
         && request.resource.data.ownerUid == resource.data.ownerUid;
@@ -125,6 +128,16 @@ service cloud.firestore {
         && request.resource.data.bio is string
         && request.resource.data.initials is string
         && request.resource.data.color is string;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /communities/at-club/presence/{userId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'lastSeen'])
+        && request.resource.data.uid == userId
+        && request.resource.data.lastSeen is timestamp;
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 

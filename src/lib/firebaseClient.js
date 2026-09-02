@@ -260,6 +260,21 @@ export function subscribeToCommunityProfiles(callback, onError) {
   }, onError)
 }
 
+export function publishCommunityPresence(uid) {
+  if (!db || !uid) return Promise.resolve()
+  return setDoc(doc(db, 'communities', COMMUNITY_ID, 'presence', uid), {
+    uid,
+    lastSeen: serverTimestamp(),
+  }, { merge: true })
+}
+
+export function subscribeToCommunityPresence(callback, onError) {
+  if (!db) return () => {}
+  return onSnapshot(collection(db, 'communities', COMMUNITY_ID, 'presence'), (snapshot) => {
+    callback(snapshot.docs.map((item) => ({ uid: item.id, ...item.data() })))
+  }, onError)
+}
+
 function subscribeToCollection(path, callback, onError, buildQuery = (ref) => ref) {
   if (!db) return () => {}
   return onSnapshot(buildQuery(collection(db, ...path)), (snapshot) => {
