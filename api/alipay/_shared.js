@@ -17,7 +17,9 @@ export function getFirebaseServices() {
   if (firebaseServices) return firebaseServices
   let serviceAccount
   try {
-    serviceAccount = JSON.parse(requiredEnv('FIREBASE_SERVICE_ACCOUNT_JSON'))
+    const rawServiceAccount = requiredEnv('FIREBASE_SERVICE_ACCOUNT_JSON')
+    serviceAccount = JSON.parse(rawServiceAccount)
+    if (typeof serviceAccount === 'string') serviceAccount = JSON.parse(serviceAccount)
   } catch (error) {
     if (error.message?.startsWith('missing-env:')) throw error
     throw new Error('invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON')
@@ -26,12 +28,23 @@ export function getFirebaseServices() {
     || !serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
     throw new Error('invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON')
   }
-  const app = getApps().length
-    ? getApps()[0]
-    : initializeApp({
-      credential: cert(serviceAccount),
-      projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID,
-    })
+  const projectId = serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID
+  const configuredProjectId = String(process.env.FIREBASE_PROJECT_ID || '').trim()
+  if (configuredProjectId && projectId && configuredProjectId !== projectId) {
+    throw new Error('firebase-admin/project-mismatch')
+  }
+  let app
+  try {
+    app = getApps().length
+      ? getApps()[0]
+      : initializeApp({
+        credential: cert(serviceAccount),
+        projectId,
+      })
+  } catch (error) {
+    if (error.message === 'firebase-admin/project-mismatch') throw error
+    throw new Error('invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON')
+  }
   firebaseServices = {
     auth: getAuth(app),
     db: getFirestore(app),
@@ -197,6 +210,12 @@ export async function finalizePaidOrder(outTradeNo, payment = {}) {
 export function handleApiError(response, error) {
   const statusCode = error.statusCode
     || (/^(missing-env|invalid-env):/.test(error.message || '') ? 503 : 500)
+  const errorCode = error.message || error.code || 'alipay-server-error'
+  console.error('[api-error]', {
+    code: errorCode,
+    statusCode,
+    message: errorCode === 'alipay-server-error' ? error.message : undefined,
+  })
   const messages = {
     'alipay-auth-required': '请先登录后再支付。',
     'payment-order-not-found': '支付订单不存在。',
@@ -221,7 +240,8 @@ export function handleApiError(response, error) {
     'missing-env:XPAY_BASE_URL': 'XPay 支付服务尚未配置。',
     'missing-env:FIREBASE_SERVICE_ACCOUNT_JSON': '支付服务端尚未连接 Firebase。',
     'invalid-env:FIREBASE_SERVICE_ACCOUNT_JSON': '报名服务端 Firebase 凭据格式错误，请重新粘贴完整的 Service Account JSON。',
+    'firebase-admin/project-mismatch': '报名服务端 Firebase 项目不一致，请确认 Service Account 属于 tshirt-c0235。',
   }
-  const code = error.message || 'alipay-server-error'
+  const code = errorCode
   sendJson(response, statusCode, { code, message: messages[code] || '支付服务暂时不可用，请稍后再试。' })
 }
