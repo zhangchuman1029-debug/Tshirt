@@ -564,7 +564,7 @@ function PublishedSessionsView({ events, publisherUid, onOpen, onPublish, onCanc
             <div className={`session-accent accent-${event.accent}`} />
             <div className="session-date"><strong>{event.date}</strong><span>{event.day}</span></div>
             <div className="session-summary"><span className="eyebrow">{cancelled ? 'CANCELLED' : 'PUBLISHED'} · {publishedDate}</span><h2>{event.title}</h2><span><MapPin size={14} /> {event.venue}</span><span><Clock3 size={14} /> {event.time}</span></div>
-            <div className="session-side"><strong>{registeredCount} / {event.total}</strong><span>{cancelled ? '已取消发布' : '已报名'}</span><button className="quiet-button" onClick={() => onOpen(event)}>查看详情 <ArrowUpRight size={14} /></button>{cancelled ? <span className="session-payment-status">记录已保留</span> : canCancel ? <button className="quiet-button cancel-published-button" onClick={() => onCancel(event)}>取消发布 <X size={14} /></button> : <span className="session-payment-status">已达 6 人，不可取消</span>}</div>
+            <div className="session-side"><strong>{registeredCount} / {event.total}</strong><span>{cancelled ? '已取消' : '已报名'}</span><button className="quiet-button" onClick={() => onOpen(event)}>查看详情 <ArrowUpRight size={14} /></button>{!cancelled && (canCancel ? <button className="quiet-button cancel-published-button" onClick={() => onCancel(event)}>取消发布 <X size={14} /></button> : <span className="session-payment-status">已达 6 人，不可取消</span>)}</div>
           </article>
         })}
       </div>}
@@ -2061,7 +2061,7 @@ function App() {
       }
       : item))
     if (selectedEvent?.id === event.id) setSelectedEvent(null)
-    flash('场次已取消发布，记录仍保留在“我的发布”。')
+    flash('场次已取消发布。')
   }
 
   function handleCreateScheduleItem(event) {
