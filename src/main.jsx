@@ -532,6 +532,39 @@ function MySessionsView({ events, joinedIds, paymentStatuses, cancellationReques
   )
 }
 
+function PublishedSessionsView({ events, publisherUid, onOpen, onPublish }) {
+  const publishedEvents = events.filter((event) => event.publisherUid === publisherUid)
+
+  return (
+    <section className="workspace-view">
+      <div className="view-heading">
+        <div><span className="eyebrow">MY PUBLICATIONS</span><h1>我的发布</h1><p>你发起的场次和当前报名进度，都在这里。</p></div>
+        <button className="primary-button" onClick={onPublish}><Plus size={16} /> 发布新场次</button>
+      </div>
+      {publishedEvents.length === 0 ? <div className="empty-state">
+        <div className="empty-orbit"><Ticket size={27} /></div>
+        <span className="eyebrow">YOUR SESSION LOG</span>
+        <h1>还没有发布过场次。</h1>
+        <p>发布一场球局后，你可以在这里查看报名人数和场次详情。</p>
+        <button className="primary-button" onClick={onPublish}>发布第一场 <Plus size={16} /></button>
+      </div> : <div className="my-session-list">
+        {publishedEvents.map((event) => {
+          const registeredCount = Math.max(0, Number(event.total) - Number(event.spots))
+          const publishedDate = event.publishedAt
+            ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(event.publishedAt))
+            : '历史场次'
+          return <article className="my-session published-session" key={event.id}>
+            <div className={`session-accent accent-${event.accent}`} />
+            <div className="session-date"><strong>{event.date}</strong><span>{event.day}</span></div>
+            <div className="session-summary"><span className="eyebrow">PUBLISHED · {publishedDate}</span><h2>{event.title}</h2><span><MapPin size={14} /> {event.venue}</span><span><Clock3 size={14} /> {event.time}</span></div>
+            <div className="session-side"><strong>{registeredCount} / {event.total}</strong><span>已报名</span><button className="quiet-button" onClick={() => onOpen(event)}>查看详情 <ArrowUpRight size={14} /></button></div>
+          </article>
+        })}
+      </div>}
+    </section>
+  )
+}
+
 function toDateKey(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -1043,6 +1076,7 @@ function App() {
       .map((item) => item.uid),
   ), [presence, presenceClock])
   const onlineCount = isFirebaseConfigured ? onlineUids.size : members.length
+  const publisherUid = firebaseUser?.uid || 'local-demo'
   const unreadMessageCount = (messageReadState.community ? 0 : 1) + (members[0] && !messageReadState.members?.[members[0].name] ? 1 : 0)
   const isOwner = !isFirebaseConfigured || isOwnerClaim
   const currentUser = useMemo(() => {
@@ -1978,6 +2012,9 @@ function App() {
       status: '报名中',
       accent: 'blue',
       publisherRole: isAdmin ? 'administrator' : 'member',
+      publisherUid,
+      publisherName: currentUser.name,
+      publishedAt: Date.now(),
     }
     setEvents((current) => [newEvent, ...current])
     setShowPublish(false)
@@ -2070,6 +2107,7 @@ function App() {
           {[
             ['首页', <House size={18} />],
             ['我的场次', <CalendarDays size={18} />],
+            ...(isAdmin ? [['我的发布', <Ticket size={18} />]] : []),
             ['个人日程', <CalendarDays size={18} />],
             ['消息', <MessageCircle size={18} />, unreadMessageCount || null],
             ['成员', <UsersRound size={18} />],
@@ -2149,6 +2187,7 @@ function App() {
           </section>
           </>}
           {activeNav === '我的场次' && <MySessionsView events={events} joinedIds={joinedIds} paymentStatuses={paymentStatuses} cancellationRequests={cancellationRequests} onExplore={() => switchNav('首页')} onPayNow={handleStartPayment} onRequestCancel={handleRequestCancellation} />}
+          {activeNav === '我的发布' && isAdmin && <PublishedSessionsView events={events} publisherUid={publisherUid} onOpen={setSelectedEvent} onPublish={() => setShowPublish(true)} />}
           {activeNav === '个人日程' && <PersonalScheduleView events={events} joinedIds={joinedIds} scheduleItems={scheduleItems} onAdd={() => setShowScheduleComposer(true)} onToggle={toggleScheduleItem} onDelete={deleteScheduleItem} />}
           {activeNav === '消息' && <MessagesView messages={messages} directMessages={directMessages} members={members} focusMember={focusMember} messageReadState={messageReadState} onlineCount={onlineCount} onlineUids={onlineUids} onSend={handleSendMessage} onSelectMember={(member) => setFocusMember(member)} onBackToCommunity={() => setFocusMember(null)} onMarkRead={handleMarkMessageRead} />}
           {activeNav === '成员' && <MembersView members={members} currentUser={currentUser} communityAccess={communityAccess} onInvite={handleOpenInvite} onContact={handleContactMember} />}
@@ -2161,6 +2200,7 @@ function App() {
         <nav className="main-nav" aria-label="移动导航">{[
           ['首页', <House size={18} />],
           ['我的场次', <CalendarDays size={18} />],
+          ...(isAdmin ? [['我的发布', <Ticket size={18} />]] : []),
           ['个人日程', <CalendarDays size={18} />],
           ['消息', <MessageCircle size={18} />, unreadMessageCount || null],
           ['成员', <UsersRound size={18} />],
