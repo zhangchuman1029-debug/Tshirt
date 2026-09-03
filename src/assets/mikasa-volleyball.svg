@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-labelledby="title desc">
+  <title id="title">Mikasa volleyball</title>
+  <desc id="desc">A blue and yellow volleyball on a transparent background.</desc>
+  <defs>
+    <radialGradient id="ball" cx="34%" cy="27%" r="76%">
+      <stop offset="0" stop-color="#fff4a1"/>
+      <stop offset=".34" stop-color="#f6d936"/>
+      <stop offset="1" stop-color="#d59e00"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#274aa8"/>
+      <stop offset=".55" stop-color="#142d7c"/>
+      <stop offset="1" stop-color="#081746"/>
+    </linearGradient>
+    <linearGradient id="blueLight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6c8ee8"/>
+      <stop offset=".45" stop-color="#3155bc"/>
+      <stop offset="1" stop-color="#142a72"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="30%" cy="22%" r="58%">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
+      <stop offset=".32" stop-color="#fff" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="clip">
+      <circle cx="180" cy="180" r="148"/>
+    </clipPath>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="12" dy="18" stdDeviation="9" flood-color="#07150e" flood-opacity=".36"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <circle cx="180" cy="180" r="148" fill="url(#ball)"/>
+    <g clip-path="url(#clip)">
+      <path d="M6 89C75 48 139 48 204 80c-19 27-26 58-21 94-58 16-108 4-166-36z" fill="url(#blue)"/>
+      <path d="M208 80c43-20 93-16 145 14l24 75c-57 16-104 8-159-18-7-27-10-49-10-71z" fill="url(#blueLight)"/>
+      <path d="M23 230c54-44 111-51 171-25 20 41 53 69 103 86l-77 83-166-38c-25-36-35-70-31-106z" fill="url(#blueLight)"/>
+      <path d="M194 205c52-19 105-10 155 23l-21 88c-57-3-105-22-155-65-4-16 3-31 21-46z" fill="url(#blue)"/>
+      <path d="M91 33c55 35 89 85 94 141-40 7-73 31-98 72-35-20-65-46-91-79L22 68z" fill="#ecc52a" opacity=".96"/>
+      <path d="M219 23c-16 48-14 91 8 130 41-9 76-3 106 18l30-76-55-72z" fill="#f5d338" opacity=".95"/>
+      <path d="M104 208c29-30 60-44 96-41 23 35 27 74 12 117-32 3-65-9-99-35-11-13-14-27-9-41z" fill="#f1ca25"/>
+      <path d="M179 325c16-38 36-65 65-82 35 18 62 43 80 74l-67 70-89-32z" fill="#f0c726"/>
+      <path d="M42 113c31-17 62-25 94-24 5 42 21 73 49 94-23 28-35 59-35 94-41-4-79-19-113-45-18-38-17-78 5-119z" fill="none" stroke="#ffe66b" stroke-opacity=".62" stroke-width="8"/>
+      <path d="M91 33c43 40 68 87 76 141M219 23c-20 45-18 89 8 130M104 208c27-24 58-38 96-41M179 325c16-36 37-64 65-82" fill="none" stroke="#fff0a0" stroke-opacity=".38" stroke-width="4"/>
+      <ellipse cx="128" cy="112" rx="75" ry="72" fill="url(#shine)"/>
+      <g transform="rotate(-18 185 175)">
+        <text x="143" y="180" fill="#0a1740" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" letter-spacing="1.5">MIKASA</text>
+        <text x="148" y="196" fill="#17306f" font-family="Arial, Helvetica, sans-serif" font-size="6" letter-spacing="2.1">VOLLEYBALL</text>
+      </g>
+    </g>
+    <circle cx="180" cy="180" r="148" fill="none" stroke="#fff4a1" stroke-opacity=".55" stroke-width="3"/>
+  </g>
+</svg>

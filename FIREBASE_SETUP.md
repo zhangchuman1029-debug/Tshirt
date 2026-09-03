@@ -27,6 +27,8 @@ Firebase Console → Authentication → Sign-in method → 启用 `Email/Passwor
 
 Firebase Console → Firestore Database → Create database。创建完成后，将仓库里的 `firestore.rules` 发布到 Firestore Rules。
 
+发布步骤：打开 Firebase Console → Firestore Database → Rules，使用仓库根目录 `firestore.rules` 的完整内容替换编辑器内容，然后点击 `发布`。推送 GitHub 或重新部署 Vercel 不会自动更新 Firestore Rules；未发布这份规则时，头像字段 `avatarUrl` 会因 `permission-denied` 而无法保存。
+
 当前版本同步：
 
 - 社群公共数据：活动、成员
@@ -37,7 +39,7 @@ Firebase Console → Firestore Database → Create database。创建完成后，
 
 头像不使用 Firebase Storage：浏览器会将图片压缩为最长边不超过 512px、约 180KB 以内的 JPEG，并直接保存到 Firestore 个人资料。单张原始图片限制为 5MB。
 
-社群动态图片也不使用 Firebase Storage：浏览器会将图片缩放并压缩，最终作为 `imageUrl` 保存到动态文档；压缩后的图片最多约 650KB，以避免超过 Firestore 单文档限制。
+社群动态图片也不使用 Firebase Storage：浏览器会将图片缩放并压缩，最终作为 `imageUrl` 保存到动态文档；压缩后的图片最多约 650KB。动态文档还会保存当前用户的 `avatarUrl`，因此必须发布仓库最新的 `firestore.rules`，否则发布动态会出现 `permission-denied`。
 
 ## 4. 设置所有者与管理员
 

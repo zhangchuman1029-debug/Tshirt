@@ -91,11 +91,14 @@ service cloud.firestore {
         && request.resource.data.authorUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'authorUid', 'author', 'initials', 'color', 'time', 'label', 'text',
-          'likes', 'liked', 'comments', 'createdAt', 'imageUrl'
+          'likes', 'liked', 'comments', 'createdAt', 'imageUrl', 'avatarUrl'
         ])
         && (!request.resource.data.keys().hasAny(['imageUrl'])
           || (request.resource.data.imageUrl is string
-            && request.resource.data.imageUrl.size() <= 650000));
+            && request.resource.data.imageUrl.size() <= 650000))
+        && (!request.resource.data.keys().hasAny(['avatarUrl'])
+          || (request.resource.data.avatarUrl is string
+            && request.resource.data.avatarUrl.size() <= 250000));
       allow update: if signedIn()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['likes', 'liked', 'comments']);

@@ -49,6 +49,7 @@ import {
 } from 'lucide-react'
 import { sendWelcomeEmail } from './lib/emailService'
 import { createAlipayPayment, getAlipayPaymentStatus, isAlipayEnabled } from './lib/alipayClient'
+import heroBallImage from './assets/mikasa-volleyball.svg'
 import {
   createInviteCodeRecord,
   createCancellationRequest,
@@ -90,7 +91,7 @@ import './styles.css'
 const COMMUNITY_NAME = 'A&T club'
 const BRAND_SLOGAN = 'ambition&together'
 const STORAGE_PREFIX = 'at-club.'
-const HERO_BALL_IMAGE = 'https://image.pngaaa.com/701/538701-middle.png'
+const HERO_BALL_IMAGE = heroBallImage
 const ROLE_LABELS = { owner: 'Owner', administrator: 'Administrator', member: 'Member' }
 const ROLE_FILTERS = [
   { key: 'all', label: '全部成员' },
@@ -2079,6 +2080,9 @@ function App() {
       setShowProfile(false)
       flash('个人名片已更新。')
     } catch (error) {
+      if (error?.code === 'permission-denied') {
+        setCloudError('头像或个人名片保存被 Firestore 拒绝：请在 Firebase Console → Firestore Database → Rules 发布仓库最新 firestore.rules 后重试。GitHub 或 Vercel 部署不会自动发布 Firestore Rules。')
+      }
       flash(getFirebaseAuthErrorMessage(error))
     }
   }
